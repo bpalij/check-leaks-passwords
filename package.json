@@ -1,0 +1,26 @@
+{
+  "name": "check-leaks-passwords",
+  "version": "0.0.0",
+  "description": "Check if passwords from CSV or JSON file exist in a HIBP leaked hashes file. Supports CSV and JSON input/output formats.",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node index.ts",
+    "lint": "eslint --ext .js,.ts **/*",
+    "lint-fix": "eslint --ext .js,.ts **/* --fix"
+  },
+  "dependencies": {
+    "fast-csv": "^4.3.6",
+    "hasha": "^5.2.0"
+  },
+  "devDependencies": {
+    "@tsconfig/node12": "^1.0.7",
+    "@types/node": "^14.14.37",
+    "@typescript-eslint/eslint-plugin": "^3.9.1",
+    "@typescript-eslint/parser": "^3.9.1",
+    "eslint": "^7.2.0",
+    "eslint-config-airbnb-base": "^14.2.0",
+    "eslint-plugin-import": "^2.21.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^4.0.2"
+  }
+}

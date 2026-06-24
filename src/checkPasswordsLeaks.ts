@@ -4,7 +4,6 @@ import { inputHandlers, outputHandlers } from './handlers/index';
 import beautifullyPrintNumber from './helpers/beautifullyPrintNumber';
 import convertArrayWithHashesToMap from './helpers/convertArrayWithHashesToMap';
 import getDataWithLeaks from './helpers/getDataWithLeaks';
-import deepCopy from './helpers/deepCopy';
 import timeDurationBetweenDatesInWords from './helpers/timeDurationBetweenDatesInWords';
 
 export default async (
@@ -44,7 +43,7 @@ export default async (
   logger.log('Checked hashes for leaks');
 
   logger.log('Sorting output by leaks DESC');
-  const sortedDataWithLeaks = deepCopy(dataWithLeaks).sort((a, b) => {
+  const sortedDataWithLeaks = structuredClone(dataWithLeaks).sort((a, b) => {
     if (a.leaks > b.leaks) return -1;
     if (a.leaks < b.leaks) return 1;
     return 0;

@@ -5,7 +5,6 @@ import {
   hashWithLeaksAndPasswordObjects,
 } from '../interfaces/types';
 import beautifullyPrintNumber from './beautifullyPrintNumber';
-import deepCopy from './deepCopy';
 
 export default (
   hashesWithPasswordObjects: Map<string, Array<passwordObject>>,
@@ -45,9 +44,9 @@ export default (
           hash,
           leaks: +leaks,
           readableLeaks: beautifullyPrintNumber(+leaks),
-          passwordObjects: deepCopy(passwordObjects),
+          passwordObjects: structuredClone(passwordObjects),
         };
-        outputArr = [...deepCopy(outputArr), objForAdd];
+        outputArr = [...structuredClone(outputArr), objForAdd];
         leakedHashes += 1;
         totalLeaks += +leaks;
       }

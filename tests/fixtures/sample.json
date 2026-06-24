@@ -1,0 +1,51 @@
+{
+  "folders": [
+    { "id": "1", "name": "Social" },
+    { "id": "2", "name": "Work" }
+  ],
+  "items": [
+    {
+      "folderId": "1",
+      "favorite": false,
+      "type": 1,
+      "name": "Example Site",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "password123",
+        "username": "user@example.com",
+        "uris": [{ "uri": "https://example.com", "match": null }],
+        "totp": null
+      }
+    },
+    {
+      "folderId": "2",
+      "favorite": true,
+      "type": 1,
+      "name": "Work Site",
+      "notes": "work account",
+      "fields": null,
+      "reprompt": 1,
+      "archivedDate": null,
+      "login": {
+        "password": "letmein",
+        "username": "user@work.com",
+        "uris": null,
+        "totp": null
+      }
+    },
+    {
+      "folderId": null,
+      "favorite": false,
+      "type": 2,
+      "name": "No Password Item",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": null
+    }
+  ]
+}

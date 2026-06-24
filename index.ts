@@ -1,5 +1,6 @@
 import checkPasswordsLeaks from './src/checkPasswordsLeaks';
+import config from './config/config';
 
 process.on('SIGINT', () => process.exit(1));
 
-checkPasswordsLeaks().catch((e) => { console.error(e); });
+checkPasswordsLeaks(config).catch((e) => { console.error(e); });

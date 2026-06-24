@@ -1,3 +1,5 @@
 node_modules/
 dist/
 config/config.ts
+coverage/
+tests/__output__/

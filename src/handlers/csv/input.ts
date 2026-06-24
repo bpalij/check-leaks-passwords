@@ -1,7 +1,7 @@
 import { parseFile } from 'fast-csv';
 import { passwordObject } from '../../interfaces/types';
 
-const validateSinglePasswordObject = (x: unknown): boolean => {
+export const validateSinglePasswordObject = (x: unknown): boolean => {
   if (x && typeof x === 'object' && typeof (x as Record<string, unknown>).login_password === 'string') {
     const keys = Object.keys(x);
     for (let i = 0; i < keys.length; i += 1) {

@@ -12,6 +12,7 @@ export default (
   path: PathLike,
   encoding: BufferEncoding,
   numberOfLines?: number,
+  logger?: Console,
 ): Promise<Array<hashWithLeaksAndPasswordObjects>> => new Promise((resolve, reject) => {
   let lines = 0;
   let previousLines = 0;
@@ -23,9 +24,10 @@ export default (
 
   let previousDate: Date = new Date();
   const interval = setInterval(() => {
+    if (!logger) return;
     const currentDate = new Date();
-    console.log(`Already checked ${beautifullyPrintNumber(lines)}${numberOfLines === undefined ? ' ' : ` from ${beautifullyPrintNumber(numberOfLines)} `}lines in file with hashes`);
-    console.log(`Reading ${beautifullyPrintNumber(Math.round((lines - previousLines) / ((currentDate.getTime() - previousDate.getTime()) / 1000)))} lines in one second`);
+    logger.log(`Already checked ${beautifullyPrintNumber(lines)}${numberOfLines === undefined ? ' ' : ` from ${beautifullyPrintNumber(numberOfLines)} `}lines in file with hashes`);
+    logger.log(`Reading ${beautifullyPrintNumber(Math.round((lines - previousLines) / ((currentDate.getTime() - previousDate.getTime()) / 1000)))} lines in one second`);
     previousLines = lines;
     previousDate = currentDate;
   }, 1000);
@@ -55,7 +57,9 @@ export default (
 
   rl.on('close', () => {
     clearInterval(interval);
-    console.log(`Checked all ${beautifullyPrintNumber(lines)} lines. Found ${beautifullyPrintNumber(leakedHashes)} hashes with total ${beautifullyPrintNumber(totalLeaks)} leaks`);
+    if (logger) {
+      logger.log(`Checked all ${beautifullyPrintNumber(lines)} lines. Found ${beautifullyPrintNumber(leakedHashes)} hashes with total ${beautifullyPrintNumber(totalLeaks)} leaks`);
+    }
     resolve(outputArr);
   });
 });

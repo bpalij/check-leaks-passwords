@@ -24,6 +24,15 @@
       }
     }
   },
+  "overrides": [
+    {
+      "files": ["tests/**/*.ts"],
+      "env": {
+        "jest": true
+      }
+    }
+  ],
+  "ignorePatterns": ["vitest.config.ts"],
   "rules": {
     "no-console": "off",
     "camelcase": [

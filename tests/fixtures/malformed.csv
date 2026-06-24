@@ -1,0 +1,3 @@
+login_password,login_username,name
+password123,user1@example.com,Test Site
+letmein,user2@example.com,Other Site,Work,ExtraColumn

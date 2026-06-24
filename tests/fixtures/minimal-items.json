@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "favorite": false,
+      "type": 1,
+      "name": "Minimal Site",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "minimalpass",
+        "username": null,
+        "uris": null,
+        "totp": null
+      }
+    }
+  ]
+}

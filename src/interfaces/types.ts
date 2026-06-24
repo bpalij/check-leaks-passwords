@@ -1,6 +1,8 @@
+export type JsonValue = string | string[] | boolean | number | Array<Record<string, unknown>>;
+
 export interface passwordObject {
   login_password: string,
-  [key: string]: string | undefined,
+  [key: string]: JsonValue | undefined,
 }
 
 export interface passwordObjectWithHash {

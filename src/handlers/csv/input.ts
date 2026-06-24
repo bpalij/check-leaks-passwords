@@ -10,7 +10,7 @@ const validateSinglePasswordObject = (x: unknown): boolean => {
         return false;
       }
       const val = (x as Record<string, unknown>)[key];
-      if ((typeof val !== 'string' && typeof val !== 'number' && val !== undefined) || val === null) {
+      if (typeof val !== 'string' && typeof val !== 'number' && val !== null && val !== undefined) {
         return false;
       }
     }
@@ -28,7 +28,13 @@ const readCsvInputFile = (path: string): Promise<Array<passwordObject>> => (
         if (!validateSinglePasswordObject(row)) {
           reject(new Error('one of rows is not valid!'));
         }
-        result.push(row as passwordObject);
+        const processed: Record<string, unknown> = {};
+        const keys = Object.keys(row);
+        for (let i = 0; i < keys.length; i += 1) {
+          const key = keys[i];
+          processed[key] = row[key] === '' ? undefined : row[key];
+        }
+        result.push(processed as passwordObject);
       })
       .on('end', () => {
         resolve(result.filter((row) => row.login_password));

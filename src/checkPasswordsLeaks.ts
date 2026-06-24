@@ -10,13 +10,13 @@ import timeDurationBetweenDatesInWords from './helpers/timeDurationBetweenDatesI
 export default async (): Promise<void> => {
   const startDate = new Date();
 
+  if (!config.outputs.length) {
+    throw new Error('At least one output must be configured in config.outputs');
+  }
+
   const inputHandler = inputHandlers[config.inputFormat];
   if (!inputHandler) {
     throw new Error(`Unknown input format: ${config.inputFormat}`);
-  }
-  const outputHandler = outputHandlers[config.outputFormat];
-  if (!outputHandler) {
-    throw new Error(`Unknown output format: ${config.outputFormat}`);
   }
 
   console.log('Reading input file');
@@ -48,9 +48,15 @@ export default async (): Promise<void> => {
   });
   console.log('Sorted output');
 
-  console.log('Writing output file');
-  await outputHandler(config.outputPath, sortedDataWithLeaks);
-  console.log('Written output file');
+  await Promise.all(config.outputs.map(async (output) => {
+    const handler = outputHandlers[output.format];
+    if (!handler) {
+      throw new Error(`Unknown output format: ${output.format}`);
+    }
+    console.log(`Writing ${output.format} output to ${output.path}`);
+    await handler(output.path, sortedDataWithLeaks);
+    console.log(`Written ${output.format} output`);
+  }));
 
   const endDate = new Date();
   console.log(`Finished in ${timeDurationBetweenDatesInWords(startDate, endDate)}`);

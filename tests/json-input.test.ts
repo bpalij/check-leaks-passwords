@@ -42,4 +42,11 @@ describe('JSON input handler', () => {
       readJsonInputFile('/nonexistent/file.json'),
     ).rejects.toThrow();
   });
+
+  it('handles folders without id or name', async () => {
+    const result = await readJsonInputFile(path.join(fixturesDir, 'folders-without-id.json'));
+    expect(result).toHaveLength(1);
+    expect(result[0].login_password).toBe('socialpass');
+    expect(result[0].folder).toBe('Social');
+  });
 });

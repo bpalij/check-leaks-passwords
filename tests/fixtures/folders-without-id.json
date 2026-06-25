@@ -1,0 +1,25 @@
+{
+  "folders": [
+    { "id": "1", "name": "Social" },
+    { "name": "NoIdFolder" },
+    { "id": "3" }
+  ],
+  "items": [
+    {
+      "folderId": "1",
+      "favorite": false,
+      "type": 1,
+      "name": "In Social",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "socialpass",
+        "username": null,
+        "uris": null,
+        "totp": null
+      }
+    }
+  ]
+}

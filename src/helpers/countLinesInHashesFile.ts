@@ -1,8 +1,8 @@
 import fs, { PathLike } from 'fs';
 import beautifullyPrintNumber from './beautifullyPrintNumber';
+import { HIGH_WATER_MARK } from '../constants';
 
 const NEWLINE = 10;
-const HIGH_WATER_MARK = 4 * 1024 * 1024;
 
 export default (
   path: PathLike,
@@ -12,16 +12,19 @@ export default (
   let previousLines = 0;
   let previousDate = new Date();
 
-  const interval = setInterval(() => {
+  const logProgress = () => {
     if (!logger) return;
     const now = new Date();
     const elapsedSec = (now.getTime() - previousDate.getTime()) / 1000;
-    const linesPerSec = Math.round((lines - previousLines) / elapsedSec);
+    const linesPerSec = elapsedSec === 0 ? 0 : Math.round((lines - previousLines) / elapsedSec);
     logger.log(`Counted ${beautifullyPrintNumber(lines)} lines in hashes file`);
     logger.log(`Counting ${beautifullyPrintNumber(linesPerSec)} lines per second`);
     previousLines = lines;
     previousDate = now;
-  }, 1000);
+  };
+
+  const interval = setInterval(logProgress, 1000);
+  logProgress();
 
   const stream = fs.createReadStream(path, { highWaterMark: HIGH_WATER_MARK });
 
@@ -34,6 +37,7 @@ export default (
 
   stream.on('end', () => {
     clearInterval(interval);
+    logProgress();
     if (logger) logger.log(`Counted all ${beautifullyPrintNumber(lines)} lines in hashes file`);
     resolve(lines);
   });

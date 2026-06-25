@@ -71,4 +71,11 @@ describe('getDataWithLeaks', () => {
     expect(result[0].leaks).toBe(1000);
     expect(logs.some((l) => l.includes('Checked all'))).toBe(true);
   });
+
+  it('rejects on non-existent hashes file', async () => {
+    const map = makeMap('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    await expect(
+      getDataWithLeaks(map, '/nonexistent/path.txt', 'utf-8'),
+    ).rejects.toThrow();
+  });
 });

@@ -9,6 +9,7 @@ const makeConfig = (overrides: Partial<configInterface> = {}): configInterface =
   inputPath: path.join(fixturesDir, 'sample.csv'),
   inputFormat: 'csv',
   hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
+  countLinesInHashesFile: false,
   outputs: [
     { format: 'json', path: path.join(__dirname, '__output__', `test_${Date.now()}.json`) },
   ],
@@ -23,6 +24,7 @@ describe('checkPasswordsLeaks integration', () => {
       inputPath: path.join(fixturesDir, 'sample.csv'),
       inputFormat: 'csv',
       hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
+      countLinesInHashesFile: false,
       outputs: [
         { format: 'json', path: jsonPath },
         { format: 'csv', path: csvPath },
@@ -65,6 +67,7 @@ describe('checkPasswordsLeaks integration', () => {
       inputPath: path.join(fixturesDir, 'sample.json'),
       inputFormat: 'json',
       hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
+      countLinesInHashesFile: false,
       outputs: [
         { format: 'json', path: jsonPath },
         { format: 'csv', path: csvPath },
@@ -166,5 +169,16 @@ describe('checkPasswordsLeaks integration', () => {
     expect(equalLeaks).toHaveLength(2);
 
     try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+  });
+
+  it('runs with countLinesInHashesFile enabled', async () => {
+    const cfg = makeConfig({ countLinesInHashesFile: true });
+    const logs: string[] = [];
+    const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
+
+    await checkPasswordsLeaks(cfg, mockLogger);
+
+    expect(logs.some((l) => l.includes('Counted'))).toBe(true);
+    expect(logs.some((l) => l.includes('Checked hashes for leaks'))).toBe(true);
   });
 });

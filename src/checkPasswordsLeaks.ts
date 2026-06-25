@@ -4,6 +4,7 @@ import { inputHandlers, outputHandlers } from './handlers/index';
 import beautifullyPrintNumber from './helpers/beautifullyPrintNumber';
 import convertArrayWithHashesToMap from './helpers/convertArrayWithHashesToMap';
 import getDataWithLeaks from './helpers/getDataWithLeaks';
+import countLinesInHashesFile from './helpers/countLinesInHashesFile';
 import timeDurationBetweenDatesInWords from './helpers/timeDurationBetweenDatesInWords';
 
 export default async (
@@ -38,8 +39,17 @@ export default async (
   logger.log('Converting array to map');
   const hashesMap = convertArrayWithHashesToMap(inputWithHashes);
 
+  let numberOfLines: number | undefined;
+  if (config.countLinesInHashesFile) {
+    logger.log('Counting lines in hashes file before checking for leaks');
+    numberOfLines = await countLinesInHashesFile(config.hashesOfLeaksPath, logger);
+    logger.log('Counted lines in hashes file');
+  } else {
+    logger.log('Skipped counting lines in hashes file');
+  }
+
   logger.log('Checking hashes for leaks');
-  const dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'utf-8', logger);
+  const dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'utf-8', logger, numberOfLines);
   logger.log('Checked hashes for leaks');
 
   logger.log('Sorting output by leaks DESC');

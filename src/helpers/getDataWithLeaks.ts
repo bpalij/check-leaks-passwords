@@ -25,7 +25,7 @@ export default (
   const interval = setInterval(() => {
     if (!logger) return;
     const currentDate = new Date();
-    logger.log(`Already checked ${beautifullyPrintNumber(lines)}${numberOfLines === undefined ? ' ' : ` from ${beautifullyPrintNumber(numberOfLines)} `}lines in file with hashes`);
+    logger.log(`Already checked ${beautifullyPrintNumber(lines)}${numberOfLines === undefined ? ' ' : ` from ${beautifullyPrintNumber(numberOfLines)} (${Math.floor((lines / numberOfLines) * 100 * 100) / 100}%) `}lines in file with hashes`);
     logger.log(`Reading ${beautifullyPrintNumber(Math.round((lines - previousLines) / ((currentDate.getTime() - previousDate.getTime()) / 1000)))} lines in one second`);
     previousLines = lines;
     previousDate = currentDate;

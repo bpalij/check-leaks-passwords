@@ -39,7 +39,7 @@ export default async (
   const hashesMap = convertArrayWithHashesToMap(inputWithHashes);
 
   logger.log('Checking hashes for leaks');
-  const dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'utf-8', undefined, logger);
+  const dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'utf-8', logger);
   logger.log('Checked hashes for leaks');
 
   logger.log('Sorting output by leaks DESC');

@@ -10,8 +10,8 @@ export default (
   hashesWithPasswordObjects: Map<string, Array<passwordObject>>,
   path: PathLike,
   encoding: BufferEncoding,
-  numberOfLines?: number,
   logger?: Console,
+  numberOfLines?: number,
 ): Promise<Array<hashWithLeaksAndPasswordObjects>> => new Promise((resolve, reject) => {
   let lines = 0;
   let previousLines = 0;

@@ -17,8 +17,6 @@ describe('getDataWithLeaks', () => {
       map,
       path.join(fixturesDir, 'sample-hashes.txt'),
       'utf-8',
-      undefined,
-      undefined,
     );
     expect(result).toHaveLength(1);
     expect(result[0].hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
@@ -32,8 +30,6 @@ describe('getDataWithLeaks', () => {
       map,
       path.join(fixturesDir, 'sample-hashes.txt'),
       'utf-8',
-      undefined,
-      undefined,
     );
     expect(result).toHaveLength(0);
   });
@@ -45,8 +41,6 @@ describe('getDataWithLeaks', () => {
         map,
         path.join(fixturesDir, 'invalid-hashes.txt'),
         'utf-8',
-        undefined,
-        undefined,
       ),
     ).rejects.toThrow('Line 1 in hashes file is incorrect');
   });
@@ -57,8 +51,6 @@ describe('getDataWithLeaks', () => {
       map,
       path.join(fixturesDir, 'empty-hashes.txt'),
       'utf-8',
-      undefined,
-      undefined,
     );
     expect(result).toHaveLength(0);
   });
@@ -72,7 +64,6 @@ describe('getDataWithLeaks', () => {
       map,
       path.join(fixturesDir, 'sample-hashes.txt'),
       'utf-8',
-      undefined,
       mockLogger,
     );
 

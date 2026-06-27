@@ -34,11 +34,10 @@ describe('checkPasswordsLeaks integration', () => {
     const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
 
     await checkPasswordsLeaks(cfg, mockLogger);
-
-    expect(logs).toContain('Reading input file');
-    expect(logs).toContain('Checked hashes for leaks');
-    expect(logs).toContain('Written json output');
-    expect(logs).toContain('Written csv output');
+    expect(logs.some((l) => l.includes('Reading input file'))).toBe(true);
+    expect(logs.some((l) => l.includes('Checked hashes for leaks'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written json output'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written csv output'))).toBe(true);
 
     const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     expect(jsonOutput).toHaveLength(3);
@@ -78,9 +77,9 @@ describe('checkPasswordsLeaks integration', () => {
 
     await checkPasswordsLeaks(cfg, mockLogger);
 
-    expect(logs).toContain('Reading input file');
-    expect(logs).toContain('Written json output');
-    expect(logs).toContain('Written csv output');
+    expect(logs.some((l) => l.includes('Reading input file'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written json output'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written csv output'))).toBe(true);
 
     const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     expect(jsonOutput).toHaveLength(2);
@@ -162,7 +161,7 @@ describe('checkPasswordsLeaks integration', () => {
 
     const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8')) as Array<{ leaks: number; hash: string }>;
     expect(output).toHaveLength(3);
-    for (let i = 1; i < output.length; i++) {
+    for (let i = 1; i < output.length; i += 1) {
       expect(output[i - 1].leaks).toBeGreaterThanOrEqual(output[i].leaks);
     }
     const equalLeaks = output.filter((e) => e.leaks === 500);
@@ -180,5 +179,94 @@ describe('checkPasswordsLeaks integration', () => {
 
     expect(logs.some((l) => l.includes('Counted'))).toBe(true);
     expect(logs.some((l) => l.includes('Checked hashes for leaks'))).toBe(true);
+  });
+
+  it('runs full pipeline with split hash directory and CSV input', async () => {
+    const jsonPath = path.join(__dirname, '__output__', `split-csv-${Date.now()}.json`);
+    const csvPath = path.join(__dirname, '__output__', `split-csv-${Date.now()}.csv`);
+    const cfg: configInterface = {
+      inputPath: path.join(fixturesDir, 'sample.csv'),
+      inputFormat: 'csv',
+      hashesOfLeaksPath: path.join(fixturesDir, 'split-hashes'),
+      countLinesInHashesFile: true,
+      outputs: [
+        { format: 'json', path: jsonPath },
+        { format: 'csv', path: csvPath },
+      ],
+    };
+    const logs: string[] = [];
+    const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
+
+    await checkPasswordsLeaks(cfg, mockLogger);
+
+    expect(logs.some((l) => l.includes('Reading input file'))).toBe(true);
+    expect(logs.some((l) => l.includes('Skipped line counting for split hash directory'))).toBe(true);
+    expect(logs.some((l) => l.includes('Checked hashes for leaks'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written json output'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written csv output'))).toBe(true);
+
+    const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    expect(jsonOutput).toHaveLength(3);
+    expect(jsonOutput[0].leaks).toBe(1000);
+    expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
+    expect(jsonOutput[1].leaks).toBe(500);
+    expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
+    expect(jsonOutput[2].leaks).toBe(250);
+    expect(jsonOutput[2].passwordObjects[0].login_password).toBe('P@ssw0rd!');
+
+    const csvOutput = fs.readFileSync(csvPath, 'utf-8');
+    expect(csvOutput).toContain('password123');
+    expect(csvOutput).toContain('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    expect(csvOutput).toContain('1 000');
+    expect(csvOutput).toContain('letmein');
+    expect(csvOutput).toContain('P@ssw0rd!');
+
+    try { fs.unlinkSync(jsonPath); } catch { /* ignore */ }
+    try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
+  });
+
+  it('runs full pipeline with split hash directory and JSON input', async () => {
+    const jsonPath = path.join(__dirname, '__output__', `split-json-${Date.now()}.json`);
+    const csvPath = path.join(__dirname, '__output__', `split-json-${Date.now()}.csv`);
+    const cfg: configInterface = {
+      inputPath: path.join(fixturesDir, 'sample.json'),
+      inputFormat: 'json',
+      hashesOfLeaksPath: path.join(fixturesDir, 'split-hashes'),
+      countLinesInHashesFile: true,
+      outputs: [
+        { format: 'json', path: jsonPath },
+        { format: 'csv', path: csvPath },
+      ],
+    };
+    const logs: string[] = [];
+    const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
+
+    await checkPasswordsLeaks(cfg, mockLogger);
+
+    expect(logs.some((l) => l.includes('Reading input file'))).toBe(true);
+    expect(logs.some((l) => l.includes('Skipped line counting for split hash directory'))).toBe(true);
+    expect(logs.some((l) => l.includes('Checked hashes for leaks'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written json output'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written csv output'))).toBe(true);
+
+    const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    expect(jsonOutput).toHaveLength(2);
+    expect(jsonOutput[0].leaks).toBe(1000);
+    expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
+    expect(jsonOutput[0].passwordObjects[0].folder).toBe('Social');
+    expect(jsonOutput[0].passwordObjects[0].login_uris).toEqual(['https://example.com']);
+    expect(jsonOutput[1].leaks).toBe(500);
+    expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
+    expect(jsonOutput[1].passwordObjects[0].folder).toBe('Work');
+
+    const csvOutput = fs.readFileSync(csvPath, 'utf-8');
+    expect(csvOutput).toContain('password123');
+    expect(csvOutput).toContain('Social');
+    expect(csvOutput).toContain('https://example.com');
+    expect(csvOutput).toContain('letmein');
+    expect(csvOutput).toContain('Work');
+
+    try { fs.unlinkSync(jsonPath); } catch { /* ignore */ }
+    try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
   });
 });

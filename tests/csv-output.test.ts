@@ -36,6 +36,11 @@ const makeDataWithNonStringValues = (): hashWithLeaksAndPasswordObjects[] => [
 ];
 
 describe('CSV output handler', () => {
+  it('rejects when write fails', async () => {
+    const badPath = path.join(os.tmpdir(), 'no-such-dir', `fail-${Date.now()}.csv`);
+    await expect(writePreparedDataToCsv(badPath, makeSampleData())).rejects.toThrow();
+  });
+
   it('writes data to CSV file correctly', async () => {
     const tmpFile = path.join(os.tmpdir(), `test-output-${Date.now()}.csv`);
     try {

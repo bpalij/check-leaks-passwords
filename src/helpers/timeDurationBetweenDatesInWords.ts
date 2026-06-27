@@ -15,7 +15,24 @@ const timeDurationBetweenDatesInWords = (date1: Date, date2: Date): string => {
   const spentSeconds = Math.floor(diffWithoutMinutes / msInSecond);
   const spentMs = diffWithoutMinutes - spentSeconds * msInSecond;
 
-  return `${spentDays ? `${spentDays} days ` : ''}${spentHours ? `${spentHours} hours ` : ''}${spentMinutes ? `${spentMinutes} minutes ` : ''}${spentSeconds ? `${spentSeconds} seconds ` : ''}${spentMs ? `${spentMs} ms` : ''}`;
+  const unitDefinitions: Array<{ value: number; label: string }> = [
+    { value: spentDays, label: 'd' },
+    { value: spentHours, label: 'h' },
+    { value: spentMinutes, label: 'min' },
+    { value: spentSeconds, label: 'sec' },
+    { value: spentMs, label: 'ms' },
+  ];
+
+  let foundNonZero = false;
+  const parts: string[] = [];
+  Array.from(unitDefinitions).forEach(({ value, label }) => {
+    if (value !== 0 || foundNonZero) {
+      foundNonZero = true;
+      parts.push(`${value}${label}`);
+    }
+  });
+
+  return foundNonZero ? parts.join(' ') : '0ms';
 };
 
 export default timeDurationBetweenDatesInWords;

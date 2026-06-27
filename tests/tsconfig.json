@@ -2,7 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
-    "types": ["vitest/globals"]
+    "types": ["node", "vitest/globals"]
   },
   "include": ["./**/*.ts", "../src/**/*.ts"]
 }

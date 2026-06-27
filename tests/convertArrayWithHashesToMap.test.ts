@@ -20,8 +20,10 @@ describe('convertArrayWithHashesToMap', () => {
     const result = convertArrayWithHashesToMap(input);
     expect(result.size).toBe(2);
     expect(result.get('ABC')).toHaveLength(2);
-    expect(result.get('ABC')![0]).toEqual({ login_password: 'pass1', name: 'a' });
-    expect(result.get('ABC')![1]).toEqual({ login_password: 'pass2', name: 'b' });
+    expect(result.get('ABC')).toEqual([
+      { login_password: 'pass1', name: 'a' },
+      { login_password: 'pass2', name: 'b' },
+    ]);
     expect(result.get('DEF')).toEqual([{ login_password: 'pass3' }]);
   });
 
@@ -35,7 +37,7 @@ describe('convertArrayWithHashesToMap', () => {
       { hash: 'ABC', passwordObject: { login_password: 'pass1' } },
     ];
     const result = convertArrayWithHashesToMap(input);
-    const obj = result.get('ABC')![0];
+    const obj = result.get('ABC')?.[0];
     expect(obj).not.toBe(input[0].passwordObject);
   });
 });

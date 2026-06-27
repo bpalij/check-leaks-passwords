@@ -1,15 +1,13 @@
 import { writeToPath } from 'fast-csv';
 import { hashWithLeaksAndPasswordObjects } from '../../interfaces/types';
 
-function sanitizeRow(row: Record<string, unknown>): Record<string, string | undefined> {
-  const result: Record<string, string | undefined> = {};
+function sanitizeRow(row: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
   Object.keys(row).forEach((key) => {
     const val = row[key];
-    if (val === undefined) {
-      result[key] = undefined;
-    } else if (typeof val === 'string') {
+    if (typeof val === 'string') {
       result[key] = val;
-    } else {
+    } else if (val !== undefined) {
       result[key] = JSON.stringify(val);
     }
   });
@@ -20,7 +18,7 @@ const writePreparedDataToCsv = (
   path: string,
   data: Array<hashWithLeaksAndPasswordObjects>,
 ): Promise<void> => {
-  const flattenedData: Array<Record<string, string | undefined>> = data
+  const flattenedData: Array<Record<string, string>> = data
     .map((val) => {
       const {
         hash, leaks, readableLeaks, passwordObjects,

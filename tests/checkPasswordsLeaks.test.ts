@@ -43,6 +43,9 @@ describe('checkPasswordsLeaks integration', () => {
     expect(jsonOutput).toHaveLength(3);
     expect(jsonOutput[0].leaks).toBe(1000);
     expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
+    expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
+    expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
     expect(jsonOutput[1].leaks).toBe(500);
     expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
     expect(jsonOutput[2].leaks).toBe(250);
@@ -84,15 +87,19 @@ describe('checkPasswordsLeaks integration', () => {
     const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     expect(jsonOutput).toHaveLength(2);
     expect(jsonOutput[0].leaks).toBe(1000);
-    expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
-    expect(jsonOutput[0].passwordObjects[0].folder).toBe('Social');
-    expect(jsonOutput[0].passwordObjects[0].login_uris).toEqual(['https://example.com']);
+    expect(jsonOutput[0].passwordObjects[0].login.password).toBe('password123');
+    expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
+    expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
+    expect(jsonOutput[0].passwordObjects[0].folderName).toBe('Social');
+    expect(jsonOutput[0].passwordObjects[0].login.uris).toEqual([{ uri: 'https://example.com' }]);
     expect(jsonOutput[1].leaks).toBe(500);
-    expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
-    expect(jsonOutput[1].passwordObjects[0].folder).toBe('Work');
+    expect(jsonOutput[1].passwordObjects[0].login.password).toBe('letmein');
+    expect(jsonOutput[1].passwordObjects[0].folderName).toBe('Work');
 
     const csvOutput = fs.readFileSync(csvPath, 'utf-8');
     expect(csvOutput).toContain('password123');
+    expect(csvOutput).toContain('folderName');
     expect(csvOutput).toContain('Social');
     expect(csvOutput).toContain('https://example.com');
     expect(csvOutput).toContain('letmein');
@@ -144,6 +151,28 @@ describe('checkPasswordsLeaks integration', () => {
         console,
       ),
     ).rejects.toThrow('Unknown output format: xml');
+  });
+
+  it('sorts ascending input data in descending order', async () => {
+    const outputPath = path.join(__dirname, '__output__', `sort-ascending-${Date.now()}.json`);
+    const cfg = makeConfig({
+      hashesOfLeaksPath: path.join(fixturesDir, 'ascending-leak-hashes.txt'),
+      outputs: [{ format: 'json', path: outputPath }],
+    });
+    const logs: string[] = [];
+    const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
+
+    await checkPasswordsLeaks(cfg, mockLogger);
+
+    expect(logs.some((l) => l.includes('Sorted output'))).toBe(true);
+
+    const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+    expect(output).toHaveLength(3);
+    expect(output[0].leaks).toBe(1000);
+    expect(output[1].leaks).toBe(500);
+    expect(output[2].leaks).toBe(250);
+
+    try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
   });
 
   it('sorts by leaks descending including equal values', async () => {
@@ -209,6 +238,9 @@ describe('checkPasswordsLeaks integration', () => {
     expect(jsonOutput).toHaveLength(3);
     expect(jsonOutput[0].leaks).toBe(1000);
     expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
+    expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
+    expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
     expect(jsonOutput[1].leaks).toBe(500);
     expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
     expect(jsonOutput[2].leaks).toBe(250);
@@ -252,15 +284,19 @@ describe('checkPasswordsLeaks integration', () => {
     const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     expect(jsonOutput).toHaveLength(2);
     expect(jsonOutput[0].leaks).toBe(1000);
-    expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
-    expect(jsonOutput[0].passwordObjects[0].folder).toBe('Social');
-    expect(jsonOutput[0].passwordObjects[0].login_uris).toEqual(['https://example.com']);
+    expect(jsonOutput[0].passwordObjects[0].login.password).toBe('password123');
+    expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
+    expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
+    expect(jsonOutput[0].passwordObjects[0].folderName).toBe('Social');
+    expect(jsonOutput[0].passwordObjects[0].login.uris).toEqual([{ uri: 'https://example.com' }]);
     expect(jsonOutput[1].leaks).toBe(500);
-    expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
-    expect(jsonOutput[1].passwordObjects[0].folder).toBe('Work');
+    expect(jsonOutput[1].passwordObjects[0].login.password).toBe('letmein');
+    expect(jsonOutput[1].passwordObjects[0].folderName).toBe('Work');
 
     const csvOutput = fs.readFileSync(csvPath, 'utf-8');
     expect(csvOutput).toContain('password123');
+    expect(csvOutput).toContain('folderName');
     expect(csvOutput).toContain('Social');
     expect(csvOutput).toContain('https://example.com');
     expect(csvOutput).toContain('letmein');

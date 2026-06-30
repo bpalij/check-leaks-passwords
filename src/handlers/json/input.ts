@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { passwordObject } from '../../interfaces/types';
+import { passwordObject, NestedPasswordObject } from '../../interfaces/types';
 
 interface BitwardenFolder {
   id?: string;
@@ -18,41 +18,46 @@ interface BitwardenLogin {
   username?: string | null;
   uris?: Array<{ uri?: string; match?: number | null }>;
   totp?: string | null;
+  fido2Credentials?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
 }
 
 interface BitwardenItem {
+  id?: string;
+  organizationId?: string;
   folderId?: string;
+  collectionIds?: string[];
   favorite?: boolean;
   type?: number;
   name?: string;
   notes?: string | null;
   fields?: BitwardenField[] | null;
   reprompt?: number;
+  revisionDate?: string;
+  creationDate?: string;
+  deletedDate?: string | null;
   archivedDate?: string | null;
+  passwordHistory?: Array<Record<string, unknown>> | null;
   login?: BitwardenLogin;
 }
 
 interface BitwardenExport {
+  encrypted?: boolean;
   folders?: BitwardenFolder[];
   items?: BitwardenItem[];
 }
 
-interface ValidBitwardenItem {
-  folderId?: string;
-  favorite: boolean;
-  type: number;
-  name?: string;
-  notes?: string | null;
-  fields?: BitwardenField[] | null;
-  reprompt: number;
-  archivedDate?: string | null;
-  login: {
-    password: string;
-    username?: string | null;
-    uris?: Array<{ uri?: string; match?: number | null }>;
-    totp?: string | null;
-  };
-}
+const TYPE_LABELS: Record<number, string> = {
+  1: 'Login',
+  2: 'Secure Note',
+  3: 'Card',
+  4: 'Identity',
+};
+
+const REPROMPT_LABELS: Record<number, string> = {
+  0: 'None',
+  1: 'Require master password',
+};
 
 const readJsonInputFile = async (path: string): Promise<Array<passwordObject>> => {
   const rawData = JSON.parse(
@@ -73,25 +78,32 @@ const readJsonInputFile = async (path: string): Promise<Array<passwordObject>> =
   }
 
   return rawData.items
-    .filter((x): x is ValidBitwardenItem => (
+    .filter((x): x is BitwardenItem & { login: BitwardenLogin & { password: string } } => (
       !!x && !!x.login && !!x.login.password && typeof x.login.password === 'string'
     ))
     .map((x) => ({
-      login_password: x.login.password,
-      folder: x.folderId ? folderMap.get(x.folderId) : undefined,
-      favorite: x.favorite,
-      type: x.type,
-      name: x.name,
-      notes: x.notes ?? undefined,
-      fields: x.fields ?? undefined,
-      reprompt: x.reprompt,
-      archivedDate: x.archivedDate ?? undefined,
-      login_uris: x.login.uris
-        ?.map((u) => u.uri)
-        .filter((uri): uri is string => !!uri) ?? undefined,
-      login_username: x.login.username ?? undefined,
-      login_totp: x.login.totp ?? undefined,
-    }));
+      ...x,
+      folderName: x.folderId ? folderMap.get(x.folderId) : undefined,
+      typeLabel: TYPE_LABELS[x.type ?? 1],
+      repromptLabel: REPROMPT_LABELS[x.reprompt ?? 0],
+      passwordAgeDays: (() => {
+        const dateStr = x.revisionDate ?? x.creationDate;
+        return dateStr
+          ? Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+          : undefined;
+      })(),
+      hasTotp: !!x.login.totp,
+      hasPasskey: !!(x.login.fido2Credentials?.length),
+      uriCount: x.login.uris
+        ? x.login.uris.map((u) => u.uri).filter(Boolean).length
+        : undefined,
+      hasCustomFields: !!(x.fields?.length),
+      login: {
+        ...x.login,
+        password: x.login.password,
+        login_uris: x.login.uris ? x.login.uris.map((u) => u.uri).filter(Boolean) : undefined,
+      },
+    }) as NestedPasswordObject) as Array<passwordObject>;
 };
 
 export default readJsonInputFile;

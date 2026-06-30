@@ -1,6 +1,27 @@
 import { parseFile } from 'fast-csv';
 import { passwordObject } from '../../interfaces/types';
 
+const DATE_PATTERNS = /^(revisionDate|updatedAt|modifiedDate|revision_date|createdAt|creationDate)$/i;
+
+const TYPE_LABELS: Record<number, string> = {
+  1: 'Login',
+  2: 'Secure Note',
+  3: 'Card',
+  4: 'Identity',
+};
+
+const TYPE_WORDS: Record<string, string> = {
+  login: 'Login',
+  note: 'Secure Note',
+  card: 'Card',
+  identity: 'Identity',
+};
+
+const REPROMPT_LABELS: Record<number, string> = {
+  0: 'None',
+  1: 'Require master password',
+};
+
 export const validateSinglePasswordObject = (x: unknown): boolean => {
   if (x && typeof x === 'object' && typeof (x as Record<string, unknown>).login_password === 'string') {
     const keys = Object.keys(x);
@@ -15,6 +36,53 @@ export const validateSinglePasswordObject = (x: unknown): boolean => {
   return false;
 };
 
+function enrichRow(row: Record<string, unknown>): Record<string, unknown> {
+  const enriched: Record<string, unknown> = { ...row };
+
+  const dateKey = Object.keys(row).find(
+    (key) => DATE_PATTERNS.test(key) && row[key],
+  );
+  if (dateKey) {
+    const parsed = Date.parse(String(row[dateKey]));
+    if (!Number.isNaN(parsed)) {
+      enriched.passwordAgeDays = Math.floor((Date.now() - parsed) / 86400000);
+    }
+  }
+
+  if (row.type !== undefined) {
+    const num = Number(row.type);
+    if (!Number.isNaN(num)) {
+      enriched.type = num;
+      enriched.typeLabel = TYPE_LABELS[num];
+    } else {
+      const word = String(row.type).toLowerCase();
+      const WORD_TO_TYPE: Record<string, number> = {
+        login: 1, note: 2, card: 3, identity: 4,
+      };
+      enriched.type = WORD_TO_TYPE[word] ?? row.type;
+      enriched.typeLabel = TYPE_WORDS[word];
+    }
+  }
+
+  if (row.reprompt !== undefined) {
+    enriched.repromptLabel = REPROMPT_LABELS[Number(row.reprompt)] ?? undefined;
+  }
+
+  if (row.favorite !== undefined) {
+    enriched.favorite = row.favorite === '1' || row.favorite === 1 || row.favorite === true;
+  }
+
+  enriched.hasTotp = row.login_totp !== undefined && !!String(row.login_totp);
+
+  enriched.folderName = row.folder ?? row.collections;
+
+  enriched.uriCount = row.login_uris
+    ? (row.login_uris as Array<unknown>).length
+    : undefined;
+
+  return enriched;
+}
+
 const readCsvInputFile = (path: string): Promise<Array<passwordObject>> => (
   new Promise((resolve, reject) => {
     const result: Array<passwordObject> = [];
@@ -24,16 +92,30 @@ const readCsvInputFile = (path: string): Promise<Array<passwordObject>> => (
         if (!validateSinglePasswordObject(row)) {
           reject(new Error('one of rows is not valid!'));
         }
+        if (!row.login_password) return;
         const processed: Record<string, unknown> = {};
         const keys = Object.keys(row);
         for (let i = 0; i < keys.length; i += 1) {
           const key = keys[i];
-          processed[key] = row[key] === '' ? undefined : row[key];
+          if (!/^login_uri\d*$/.test(key) && key !== 'login_uris') {
+            processed[key] = row[key] === '' ? undefined : row[key];
+          }
         }
-        result.push(processed as passwordObject);
+        const uriKeys = Object.keys(row).filter(
+          (k) => /^login_uri\d*$/.test(k) || k === 'login_uris',
+        );
+        if (uriKeys.length) {
+          const uris: string[] = [];
+          uriKeys.forEach((k) => {
+            const v = row[k];
+            if (v && typeof v === 'string') uris.push(v);
+          });
+          if (uris.length) processed.login_uris = uris;
+        }
+        result.push(enrichRow(processed) as passwordObject);
       })
       .on('end', () => {
-        resolve(result.filter((row) => row.login_password));
+        resolve(result);
       });
   })
 );

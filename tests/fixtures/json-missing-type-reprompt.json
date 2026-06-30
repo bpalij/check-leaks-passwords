@@ -1,0 +1,25 @@
+{
+  "folders": [],
+  "items": [
+    {
+      "name": "No Type No Reprompt",
+      "login": {
+        "password": "pass456",
+        "username": "user",
+        "uris": null,
+        "totp": null
+      }
+    },
+    {
+      "type": 2,
+      "name": "Secure Note",
+      "notes": "something",
+      "login": {
+        "password": "pass789",
+        "username": null,
+        "uris": null,
+        "totp": null
+      }
+    }
+  ]
+}

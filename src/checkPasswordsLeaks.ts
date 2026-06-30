@@ -3,6 +3,7 @@ import { type configInterface } from '../config/configInterface';
 import { inputHandlers, outputHandlers } from './handlers/index';
 import beautifullyPrintNumber from './helpers/beautifullyPrintNumber';
 import convertArrayWithHashesToMap from './helpers/convertArrayWithHashesToMap';
+import extractPassword from './helpers/extractPassword';
 import getDataWithLeaks from './helpers/getDataWithLeaks';
 import countLinesInHashesFile from './helpers/countLinesInHashesFile';
 import timeDurationBetweenDatesInWords from './helpers/timeDurationBetweenDatesInWords';
@@ -35,7 +36,7 @@ export default async (
 
   timedLog('Counting hashes for passwords');
   const inputWithHashes = await Promise.all(input.map(async (obj) => {
-    const hash = crypto.createHash('sha1').update(obj.login_password).digest('hex').toUpperCase();
+    const hash = crypto.createHash('sha1').update(extractPassword(obj)).digest('hex').toUpperCase();
     return { hash, passwordObject: obj };
   }));
   timedLog('Hashes for passwords ready');

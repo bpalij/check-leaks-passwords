@@ -12,6 +12,8 @@ import parseBuffer from './parseBuffer';
 import beautifullyPrintNumber from './beautifullyPrintNumber';
 import timeDurationBetweenDatesInWords from './timeDurationBetweenDatesInWords';
 import estimatedTimeRemaining from './estimatedTimeRemaining';
+import groupHashesByPrefix from './groupHashesByPrefix';
+import buildFingerprintSet from './buildFingerprintSet';
 
 export default async function processSplitDirectory(
   hashesWithPasswordObjects: Map<string, Array<passwordObject>>,
@@ -19,31 +21,15 @@ export default async function processSplitDirectory(
   encoding: BufferEncoding,
   logger?: (message: string) => void,
 ): Promise<Array<hashWithLeaksAndPasswordObjects>> {
-  const prefixToSuffixMap = new Map<string, Map<string, passwordObject[]>>();
-  Array.from(hashesWithPasswordObjects).forEach(([fullHash, passwordObjects]) => {
-    const prefix = fullHash.slice(0, HASH_PREFIX_LENGTH).toUpperCase();
-    const hashSuffix = fullHash.slice(HASH_PREFIX_LENGTH);
-
-    let suffixMap = prefixToSuffixMap.get(prefix);
-    if (!suffixMap) {
-      suffixMap = new Map();
-      prefixToSuffixMap.set(prefix, suffixMap);
-    }
-    suffixMap.set(hashSuffix, passwordObjects as passwordObject[]);
-  });
+  const prefixToSuffixMap = groupHashesByPrefix(hashesWithPasswordObjects, HASH_PREFIX_LENGTH);
 
   const matchingPrefixes = Array.from(prefixToSuffixMap.keys());
   const totalPrefixes = matchingPrefixes.length;
   const results: Array<hashWithLeaksAndPasswordObjects> = [];
   if (totalPrefixes === 0) return results;
 
-  const fingerprintSet = new Set<number>();
-  Array.from(prefixToSuffixMap.values()).forEach((suffixMap) => {
-    Array.from(suffixMap.keys()).forEach((suffix) => {
-      const buf = Buffer.from(suffix.slice(0, 4), 'ascii');
-      fingerprintSet.add(buf.readUInt32BE(0));
-    });
-  });
+  const allSuffixes = Array.from(prefixToSuffixMap.values()).flatMap((m) => Array.from(m.keys()));
+  const fingerprintSet = buildFingerprintSet(allSuffixes);
 
   let nextPrefixIndex = 0;
   let processedPrefixCount = 0;

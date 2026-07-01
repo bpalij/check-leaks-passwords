@@ -10,6 +10,7 @@ const makeConfig = (overrides: Partial<configInterface> = {}): configInterface =
   inputFormat: 'csv',
   hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
   countLinesInHashesFile: false,
+  useHibpApi: false,
   outputs: [
     { format: 'json', path: path.join(__dirname, '__output__', `test_${Date.now()}.json`) },
   ],
@@ -25,6 +26,7 @@ describe('checkPasswordsLeaks integration', () => {
       inputFormat: 'csv',
       hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
       countLinesInHashesFile: false,
+      useHibpApi: false,
       outputs: [
         { format: 'json', path: jsonPath },
         { format: 'csv', path: csvPath },
@@ -70,6 +72,7 @@ describe('checkPasswordsLeaks integration', () => {
       inputFormat: 'json',
       hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
       countLinesInHashesFile: false,
+      useHibpApi: false,
       outputs: [
         { format: 'json', path: jsonPath },
         { format: 'csv', path: csvPath },
@@ -130,7 +133,7 @@ describe('checkPasswordsLeaks integration', () => {
         makeConfig({ inputFormat: 'xml' as 'csv' }),
         console,
       ),
-    ).rejects.toThrow('Unknown input format: xml');
+    ).rejects.toThrow('Unknown inputFormat "xml"');
   });
 
   it('rejects input with no matching hashes', async () => {
@@ -150,7 +153,7 @@ describe('checkPasswordsLeaks integration', () => {
         makeConfig({ outputs: [{ format: 'xml' as 'csv', path: '/dev/null' }] }),
         console,
       ),
-    ).rejects.toThrow('Unknown output format: xml');
+    ).rejects.toThrow('outputs[0].format "xml" is invalid');
   });
 
   it('sorts ascending input data in descending order', async () => {
@@ -218,6 +221,7 @@ describe('checkPasswordsLeaks integration', () => {
       inputFormat: 'csv',
       hashesOfLeaksPath: path.join(fixturesDir, 'split-hashes'),
       countLinesInHashesFile: true,
+      useHibpApi: false,
       outputs: [
         { format: 'json', path: jsonPath },
         { format: 'csv', path: csvPath },
@@ -265,6 +269,7 @@ describe('checkPasswordsLeaks integration', () => {
       inputFormat: 'json',
       hashesOfLeaksPath: path.join(fixturesDir, 'split-hashes'),
       countLinesInHashesFile: true,
+      useHibpApi: false,
       outputs: [
         { format: 'json', path: jsonPath },
         { format: 'csv', path: csvPath },
@@ -304,5 +309,70 @@ describe('checkPasswordsLeaks integration', () => {
 
     try { fs.unlinkSync(jsonPath); } catch { /* ignore */ }
     try { fs.unlinkSync(csvPath); } catch { /* ignore */ }
+  });
+
+  it('runs full pipeline via HIBP API with countLinesInHashesFile enabled', { timeout: 30000 }, async () => {
+    const jsonPath = path.join(__dirname, '__output__', `hibp-count-${Date.now()}.json`);
+    const cfg: configInterface = {
+      inputPath: path.join(fixturesDir, 'sample.csv'),
+      inputFormat: 'csv',
+      hashesOfLeaksPath: '/dev/null',
+      countLinesInHashesFile: true,
+      useHibpApi: true,
+      outputs: [
+        { format: 'json', path: jsonPath },
+      ],
+    };
+    const logs: string[] = [];
+    const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
+
+    await checkPasswordsLeaks(cfg, mockLogger);
+
+    expect(logs.some((l) => l.includes('Skipped counting lines in hashes file because useHibpApi is enabled'))).toBe(true);
+    expect(logs.some((l) => l.includes('Already checked'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written json output'))).toBe(true);
+
+    const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    expect(jsonOutput).toHaveLength(3);
+    jsonOutput.forEach((entry: { leaks: number }) => {
+      expect(entry.leaks).toBeGreaterThan(0);
+    });
+
+    try { fs.unlinkSync(jsonPath); } catch { /* ignore */ }
+  });
+
+  it('runs full pipeline via HIBP API with CSV input', { timeout: 30000 }, async () => {
+    const jsonPath = path.join(__dirname, '__output__', `hibp-${Date.now()}.json`);
+    const cfg: configInterface = {
+      inputPath: path.join(fixturesDir, 'sample.csv'),
+      inputFormat: 'csv',
+      hashesOfLeaksPath: '/dev/null',
+      countLinesInHashesFile: false,
+      useHibpApi: true,
+      outputs: [
+        { format: 'json', path: jsonPath },
+      ],
+    };
+    const logs: string[] = [];
+    const mockLogger = { log: (msg: string) => { logs.push(msg); } } as Console;
+
+    await checkPasswordsLeaks(cfg, mockLogger);
+
+    expect(logs.some((l) => l.includes('Reading input file'))).toBe(true);
+    expect(logs.some((l) => l.includes('Already checked'))).toBe(true);
+    expect(logs.some((l) => l.includes('Checked all'))).toBe(true);
+    expect(logs.some((l) => l.includes('Cloudflare cache'))).toBe(true);
+    expect(logs.some((l) => l.includes('Written json output'))).toBe(true);
+
+    const jsonOutput = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    expect(jsonOutput).toHaveLength(3);
+    jsonOutput.forEach((entry: { leaks: number }) => {
+      expect(entry.leaks).toBeGreaterThan(0);
+    });
+    expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
+    expect(jsonOutput[1].passwordObjects[0].login_password).toBe('letmein');
+    expect(jsonOutput[2].passwordObjects[0].login_password).toBe('P@ssw0rd!');
+
+    try { fs.unlinkSync(jsonPath); } catch { /* ignore */ }
   });
 });

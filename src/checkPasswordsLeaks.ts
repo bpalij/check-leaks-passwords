@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { type configInterface } from '../config/configInterface';
+import validateConfig from '../config/validateConfig';
 import { inputHandlers, outputHandlers } from './handlers/index';
 import beautifullyPrintNumber from './helpers/beautifullyPrintNumber';
 import convertArrayWithHashesToMap from './helpers/convertArrayWithHashesToMap';
@@ -7,27 +8,22 @@ import extractPassword from './helpers/extractPassword';
 import getDataWithLeaks from './helpers/getDataWithLeaks';
 import countLinesInHashesFile from './helpers/countLinesInHashesFile';
 import timeDurationBetweenDatesInWords from './helpers/timeDurationBetweenDatesInWords';
+import processHibpApi from './helpers/processHibpApi';
 
 export default async (
   config: Readonly<configInterface>,
   logger: Console = console,
 ): Promise<void> => {
+  validateConfig(config);
+
   const startDate = new Date();
 
   const timedLog = (message: string) => {
     logger.log(`${message}  [${timeDurationBetweenDatesInWords(startDate, new Date())}]`);
   };
 
-  if (!config.outputs.length) {
-    throw new Error('At least one output must be configured in config.outputs');
-  }
-
-  const inputHandler = inputHandlers[config.inputFormat];
-  if (!inputHandler) {
-    throw new Error(`Unknown input format: ${config.inputFormat}`);
-  }
-
   timedLog('Reading input file');
+  const inputHandler = inputHandlers[config.inputFormat];
   const input = await inputHandler(config.inputPath);
   if (!input.length) {
     throw new Error('Not found correct not-empty passwords');
@@ -44,18 +40,28 @@ export default async (
   timedLog('Converting array to map');
   const hashesMap = convertArrayWithHashesToMap(inputWithHashes);
 
-  let numberOfLines: number | undefined;
-  if (config.countLinesInHashesFile) {
-    timedLog('Counting lines in hashes file before checking for leaks');
-    numberOfLines = await countLinesInHashesFile(config.hashesOfLeaksPath, timedLog);
-    timedLog('Counted lines in hashes file');
+  let dataWithLeaks;
+  if (config.useHibpApi) {
+    if (config.countLinesInHashesFile) {
+      timedLog('Skipped counting lines in hashes file because useHibpApi is enabled');
+    }
+    timedLog('Checking hashes for leaks via HIBP API');
+    dataWithLeaks = await processHibpApi(hashesMap, timedLog);
+    timedLog('Checked hashes for leaks');
   } else {
-    timedLog('Skipped counting lines in hashes file');
-  }
+    let numberOfLines: number | undefined;
+    if (config.countLinesInHashesFile) {
+      timedLog('Counting lines in hashes file before checking for leaks');
+      numberOfLines = await countLinesInHashesFile(config.hashesOfLeaksPath, timedLog);
+      timedLog('Counted lines in hashes file');
+    } else {
+      timedLog('Skipped counting lines in hashes file');
+    }
 
-  timedLog('Checking hashes for leaks');
-  const dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'ascii', timedLog, numberOfLines);
-  timedLog('Checked hashes for leaks');
+    timedLog('Checking hashes for leaks');
+    dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'ascii', timedLog, numberOfLines);
+    timedLog('Checked hashes for leaks');
+  }
 
   timedLog('Sorting output by leaks DESC');
   const sortedDataWithLeaks = structuredClone(dataWithLeaks).sort((a, b) => {

@@ -1,3 +1,3 @@
-login_password,revisionDate,type,reprompt,login_totp,name
-pass1,2024-01-15T10:00:00.000Z,login,0,otpauth://totp/example,Site A
-pass2,2023-06-01T00:00:00.000Z,identity,1,,Site B
+login_password,revisionDate,type,reprompt,login_totp,name,favorite
+pass1,2024-01-15T10:00:00.000Z,login,0,otpauth://totp/example,Site A,1
+pass2,2023-06-01T00:00:00.000Z,identity,1,,Site B,0

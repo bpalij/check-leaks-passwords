@@ -8,6 +8,7 @@ import timeDurationBetweenDatesInWords from './timeDurationBetweenDatesInWords';
 import estimatedTimeRemaining from './estimatedTimeRemaining';
 import { HIGH_WATER_MARK } from '../constants';
 import parseBuffer from './parseBuffer';
+import buildFingerprintSet from './buildFingerprintSet';
 
 const NEWLINE = 0x0A;
 
@@ -18,11 +19,9 @@ export default async function processSingleFile(
   logger?: (message: string) => void,
   numberOfLines?: number,
 ): Promise<Array<hashWithLeaksAndPasswordObjects>> {
-  const fingerprintSet = new Set<number>();
-  Array.from(hashesWithPasswordObjects.keys()).forEach((fullHash) => {
-    const prefixBuf = Buffer.from(fullHash.slice(0, 4), 'ascii');
-    fingerprintSet.add(prefixBuf.readUInt32BE(0));
-  });
+  const fingerprintSet = buildFingerprintSet(
+    Array.from(hashesWithPasswordObjects.keys()).map((h) => h.slice(0, 4)),
+  );
 
   return new Promise((resolve, reject) => {
     let linesProcessed = 0;

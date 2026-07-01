@@ -54,6 +54,22 @@ describe('countLinesInHashesFile', () => {
     }
   });
 
+  it('handles zero elapsed time for avg lines per second', async () => {
+    const logs: string[] = [];
+    const mockLog = (msg: string) => { logs.push(msg); };
+
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+
+    await countLinesInHashesFile(
+      path.join(fixturesDir, 'sample-hashes.txt'),
+      mockLog,
+    );
+
+    expect(logs.some((l) => l.includes('avg lines per second'))).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('logs progress with avg speed and counting time', async () => {
     const logs: string[] = [];
     const mockLog = (msg: string) => { logs.push(msg); };

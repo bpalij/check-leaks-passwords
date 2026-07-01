@@ -9,4 +9,5 @@ export interface configInterface {
   hashesOfLeaksPath: string,
   countLinesInHashesFile: boolean,
   outputs: Array<OutputConfig>,
+  useHibpApi: boolean,
 }

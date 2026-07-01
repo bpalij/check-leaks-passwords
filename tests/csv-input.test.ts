@@ -36,10 +36,12 @@ describe('CSV input handler', () => {
 
   it('handles unknown type and reprompt values as undefined with uriCount', async () => {
     const result = await readCsvInputFile(path.join(fixturesDir, 'csv-edge-enrichments.csv'));
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0].typeLabel).toBeUndefined();
     expect(result[0].repromptLabel).toBeUndefined();
     expect(result[0].uriCount).toBe(1);
+    expect(result[1].type).toBe('custom');
+    expect(result[1].typeLabel).toBeUndefined();
   });
 
   it('aggregates multiple login_uri columns into login_uris JSON array', async () => {
@@ -69,6 +71,8 @@ describe('CSV input handler', () => {
     expect(result[1].typeLabel).toBe('Identity');
     expect(result[1].repromptLabel).toBe('Require master password');
     expect(result[1].hasTotp).toBe(false);
+    expect(result[0].favorite).toBe(true);
+    expect(result[1].favorite).toBe(false);
   });
 });
 

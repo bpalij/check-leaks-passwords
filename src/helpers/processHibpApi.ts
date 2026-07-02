@@ -7,6 +7,7 @@ import groupHashesByPrefix from './groupHashesByPrefix';
 import buildFingerprintSet from './buildFingerprintSet';
 import parseBuffer from './parseBuffer';
 import beautifullyPrintNumber from './beautifullyPrintNumber';
+import beautifullyPrintCompact from './beautifullyPrintCompact';
 import timeDurationBetweenDatesInWords from './timeDurationBetweenDatesInWords';
 import estimatedTimeRemaining from './estimatedTimeRemaining';
 
@@ -149,7 +150,7 @@ export default async function processHibpApi(
     logger(
       `Checked all ${beautifullyPrintNumber(totalPrefixes)} prefix requests.`
       + ` Found ${beautifullyPrintNumber(totalMatchedHashCount)} hashes`
-      + ` with total ${beautifullyPrintNumber(totalCumulativeLeakCount)} leaks`,
+      + ` with total ${beautifullyPrintNumber(totalCumulativeLeakCount)} (${beautifullyPrintCompact(totalCumulativeLeakCount)}) leaks`,
     );
     logger(`Processing ${beautifullyPrintNumber(avgPerSecond)} avg requests per second`);
     logger(`Cloudflare cache: ${cfTotal} total, hit: ${cfHits} (${hitPct}%), miss: ${cfMisses} (${missPct}%)`);

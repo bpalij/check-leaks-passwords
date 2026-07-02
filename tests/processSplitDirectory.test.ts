@@ -74,7 +74,7 @@ describe('processSplitDirectory', () => {
     expect(logs.some((l) => l.includes('Checked passwords in'))).toBe(true);
     // final summary
     expect(logs.some((l) => l.includes('Checked all 1 prefix files.'
-      + ' Found 1 hashes with total 1 000 leaks'))).toBe(true);
+      + ' Found 1 hashes with total 1 000 (1 K) leaks'))).toBe(true);
   });
 
   it('returns immediately for empty hash map', async () => {

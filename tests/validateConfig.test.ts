@@ -6,7 +6,6 @@ const validConfig: Readonly<configInterface> = {
   inputPath: '/some/path.csv',
   inputFormat: 'csv',
   hashesOfLeaksPath: '/some/hashes.txt',
-  countLinesInHashesFile: false,
   useHibpApi: false,
   outputs: [
     { format: 'csv', path: '/output/out.csv' },
@@ -34,10 +33,6 @@ describe('validateConfig', () => {
   it('throws if hashesOfLeaksPath is empty when useHibpApi is false', () => {
     expect(() => validateConfig({ ...validConfig, hashesOfLeaksPath: '' })).toThrow('hashesOfLeaksPath must be a non-empty string');
     expect(() => validateConfig({ ...validConfig, hashesOfLeaksPath: '  ' })).toThrow('hashesOfLeaksPath must be a non-empty string');
-  });
-
-  it('throws if countLinesInHashesFile is not a boolean', () => {
-    expect(() => validateConfig({ ...validConfig, countLinesInHashesFile: 1 as never })).toThrow('countLinesInHashesFile must be a boolean');
   });
 
   it('throws if outputs is empty', () => {

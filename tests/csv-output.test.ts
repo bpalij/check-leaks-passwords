@@ -9,6 +9,7 @@ const makeSampleData = (): hashWithLeaksAndPasswordObjects[] => [
     hash: 'ABC123',
     leaks: 1000,
     readableLeaks: '1 000',
+    compactLeaks: '1 K',
     passwordObjects: [
       { login_password: 'pass1', name: 'site1' },
       { login_password: 'pass2', name: 'site2' },
@@ -18,6 +19,7 @@ const makeSampleData = (): hashWithLeaksAndPasswordObjects[] => [
     hash: 'DEF456',
     leaks: 500,
     readableLeaks: '500',
+    compactLeaks: '500',
     passwordObjects: [
       { login_password: 'pass3', name: 'site3', extra: undefined },
     ],
@@ -29,6 +31,7 @@ const makeDataWithNonStringValues = (): hashWithLeaksAndPasswordObjects[] => [
     hash: 'ABC123',
     leaks: 1000,
     readableLeaks: '1 000',
+    compactLeaks: '1 K',
     passwordObjects: [
       { login_password: 'pass1', favorite: true, type: 1 },
     ],
@@ -46,10 +49,10 @@ describe('CSV output handler', () => {
     try {
       await writePreparedDataToCsv(tmpFile, makeSampleData());
       const content = fs.readFileSync(tmpFile, 'utf-8');
-      expect(content).toContain('name,login_password,login_password_hash,login_password_leaks,login_password_readable_leaks');
-      expect(content).toContain('site1,pass1,ABC123,1000,1 000');
-      expect(content).toContain('site2,pass2,ABC123,1000,1 000');
-      expect(content).toContain('site3,pass3,DEF456,500,500');
+      expect(content).toContain('name,login_password,login_password_hash,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks');
+      expect(content).toContain('site1,pass1,ABC123,1000,1 000,1 K');
+      expect(content).toContain('site2,pass2,ABC123,1000,1 000,1 K');
+      expect(content).toContain('site3,pass3,DEF456,500,500,500');
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }
@@ -75,6 +78,7 @@ describe('CSV output handler', () => {
         hash: 'DEF456',
         leaks: 0,
         readableLeaks: '0',
+        compactLeaks: '0',
         passwordObjects: [
           {
             login_password: 'p1',
@@ -103,6 +107,7 @@ describe('CSV output handler', () => {
         hash: 'ABC123',
         leaks: 1000,
         readableLeaks: '1 000',
+        compactLeaks: '1 K',
         passwordObjects: [
           {
             login: {

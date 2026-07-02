@@ -10,6 +10,7 @@ import {
 } from '../constants';
 import parseBuffer from './parseBuffer';
 import beautifullyPrintNumber from './beautifullyPrintNumber';
+import beautifullyPrintCompact from './beautifullyPrintCompact';
 import timeDurationBetweenDatesInWords from './timeDurationBetweenDatesInWords';
 import estimatedTimeRemaining from './estimatedTimeRemaining';
 import groupHashesByPrefix from './groupHashesByPrefix';
@@ -123,7 +124,7 @@ export default async function processSplitDirectory(
     logger(
       `Checked all ${beautifullyPrintNumber(totalPrefixes)} prefix files.`
       + ` Found ${beautifullyPrintNumber(totalMatchedHashCount)} hashes`
-      + ` with total ${beautifullyPrintNumber(totalCumulativeLeakCount)} leaks`,
+      + ` with total ${beautifullyPrintNumber(totalCumulativeLeakCount)} (${beautifullyPrintCompact(totalCumulativeLeakCount)}) leaks`,
     );
     logger(`Reading ${beautifullyPrintNumber(avgFilesPerSecond)} files per second`);
     logger(`Checked passwords in ${timeDurationBetweenDatesInWords(startTime, new Date())}`);

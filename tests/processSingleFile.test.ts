@@ -25,6 +25,7 @@ describe('processSingleFile', () => {
     expect(result[0].hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
     expect(result[0].leaks).toBe(1000);
     expect(result[0].readableLeaks).toBe('1 000');
+    expect(result[0].compactLeaks).toBe('1 K');
   });
 
   it('returns empty array when no hashes match', async () => {
@@ -73,8 +74,8 @@ describe('processSingleFile', () => {
     expect(result).toHaveLength(1);
     expect(result[0].leaks).toBe(1000);
     expect(logs.some((l) => l.includes('Checked all'))).toBe(true);
-    expect(logs.some((l) => l.includes('avg lines per second'))).toBe(true);
-    expect(logs.some((l) => l.includes('Checking passwords time:'))).toBe(true);
+    expect(logs.some((l) => l.includes('Found') && l.includes('hashes'))).toBe(true);
+    expect(logs.some((l) => l.includes('lines/s avg'))).toBe(true);
     expect(logs.some((l) => l.includes('Checked passwords in'))).toBe(true);
   });
 
@@ -113,28 +114,12 @@ describe('processSingleFile', () => {
     expect(result[1].leaks).toBe(500);
   });
 
-  it('logs estimated time remaining when numberOfLines is provided', async () => {
-    const map = makeMap('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
-    const logs: string[] = [];
-    const mockLog = (msg: string) => { logs.push(msg); };
-
-    await processSingleFile(
-      map,
-      path.join(fixturesDir, 'sample-hashes.txt'),
-      'ascii',
-      mockLog,
-      3,
-    );
-
-    expect(logs.some((l) => l.includes('Estimated time remaining: finishing up...'))).toBe(true);
-    expect(logs.some((l) => l.includes('Checked all 3 lines.'))).toBe(true);
-  });
-
   it('handles partial line across chunk boundaries', async () => {
     const { PassThrough } = await import('stream');
     const mockStream = new PassThrough();
 
     vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 1000 } as never);
 
     const map = new Map<string, passwordObject[]>();
     map.set('CBFDAC6008F9CAB4083784CBD1874F76618D2A97', [{ login_password: 'pass1' }]);
@@ -154,19 +139,20 @@ describe('processSingleFile', () => {
     expect(byHash.get('B7A875FC1EA228B9061041B7CEC4BD3C52AB3CE3')?.leaks).toBe(500);
   });
 
-  it('skips eta log when estimated time rounds to zero', async () => {
+  it('logs finishing up eta when all bytes are processed', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
     const { PassThrough } = await import('stream');
     const mockStream = new PassThrough();
     vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 124 } as never);
 
     const map = new Map<string, passwordObject[]>();
 
     const logs: string[] = [];
     const logger = (msg: string) => { logs.push(msg); };
 
-    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger, 4);
+    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger);
 
     mockStream.write(
       Buffer.from(
@@ -183,7 +169,7 @@ describe('processSingleFile', () => {
 
     const results = await processPromise;
     expect(results).toHaveLength(0);
-    expect(logs.some((l) => l.includes('Estimated time remaining:'))).toBe(false);
+    expect(logs.some((l) => l.includes('finishing up'))).toBe(true);
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -195,6 +181,7 @@ describe('processSingleFile', () => {
     const { PassThrough } = await import('stream');
     const mockStream = new PassThrough();
     vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 1000 } as never);
 
     const map = new Map<string, passwordObject[]>();
     map.set('CBFDAC6008F9CAB4083784CBD1874F76618D2A97', [{ login_password: 'pass1' }]);
@@ -209,7 +196,77 @@ describe('processSingleFile', () => {
 
     const results = await processPromise;
     expect(results).toHaveLength(1);
-    expect(logs.some((l) => l.includes('0 avg lines per second'))).toBe(true);
+    expect(logs.some((l) => l.includes('0 lines/s avg'))).toBe(true);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('skips line rate when linesPerSec is zero', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { PassThrough } = await import('stream');
+    const mockStream = new PassThrough();
+    vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 1000 } as never);
+
+    const map = new Map<string, passwordObject[]>();
+    map.set('CBFDAC6008F9CAB4083784CBD1874F76618D2A97', [{ login_password: 'pass1' }]);
+
+    const logs: string[] = [];
+    const logger = (msg: string) => { logs.push(msg); };
+
+    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger);
+
+    mockStream.write(Buffer.from('CBFDAC6008F9CAB4083784CBD1874F76618D2', 'ascii'));
+
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(logs.some((l) => l.includes('Reading') && !l.includes('lines/s'))).toBe(true);
+
+    mockStream.write(Buffer.from('A97:1000\n', 'ascii'));
+    mockStream.end();
+
+    const results = await processPromise;
+    expect(results).toHaveLength(1);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('skips eta log when estimatedTimeRemaining returns undefined', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { PassThrough } = await import('stream');
+    const mockStream = new PassThrough();
+    vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 1000 } as never);
+
+    const map = new Map<string, passwordObject[]>();
+    map.set('CBFDAC6008F9CAB4083784CBD1874F76618D2A97', [{ login_password: 'pass1' }]);
+
+    const logs: string[] = [];
+    const logger = (msg: string) => { logs.push(msg); };
+
+    vi.spyOn(await import('../src/helpers/estimatedTimeRemaining'), 'default').mockReturnValue(undefined);
+
+    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger);
+
+    setTimeout(() => {
+      mockStream.write(Buffer.from('CBFDAC6008F9CAB4083784CBD1874F76618D2A97:1000\n', 'ascii'));
+    }, 100);
+    setTimeout(() => {
+      mockStream.end();
+    }, 3000);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(logs.some((l) => l.includes('Estimated time remaining:'))).toBe(false);
+    expect(logs.some((l) => l.includes('Already checked'))).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    const results = await processPromise;
+    expect(results).toHaveLength(1);
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -219,6 +276,7 @@ describe('processSingleFile', () => {
     const { PassThrough } = await import('stream');
     const mockStream = new PassThrough();
     vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 1000 } as never);
 
     const map = makeMap('5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8');
     const processPromise = processSingleFile(map, '/fake/path', 'ascii');
@@ -236,6 +294,7 @@ describe('processSingleFile', () => {
     const { PassThrough } = await import('stream');
     const mockStream = new PassThrough();
     vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: 1000 } as never);
 
     const map = new Map<string, passwordObject[]>();
     map.set('CBFDAC6008F9CAB4083784CBD1874F76618D2A97', [{ login_password: 'pass1' }]);
@@ -243,7 +302,7 @@ describe('processSingleFile', () => {
     const logs: string[] = [];
     const logger = (msg: string) => { logs.push(msg); };
 
-    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger, 100);
+    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger);
 
     setTimeout(() => {
       mockStream.write(Buffer.from('CBFDAC6008F9CAB4083784CBD1874F76618D2A97:1000\n', 'ascii'));
@@ -260,6 +319,37 @@ describe('processSingleFile', () => {
     const results = await processPromise;
     expect(results).toHaveLength(1);
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('logs estimated total lines when processing more than 1000 lines', async () => {
+    const { PassThrough } = await import('stream');
+    const mockStream = new PassThrough();
+    vi.spyOn(fs, 'createReadStream').mockReturnValue(mockStream as never);
+
+    const map = new Map<string, passwordObject[]>();
+    map.set('0000000000000000000000000000000000000001', [{ login_password: 'pass1' }]);
+
+    const lines: string[] = [];
+    for (let i = 1; i <= 1001; i += 1) {
+      const hash = `000${String(i).padStart(37, '0')}`;
+      lines.push(`${hash}:${i}`);
+    }
+    const buf = Buffer.from(`${lines.join('\n')}\n`, 'ascii');
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ size: buf.length } as never);
+
+    const logs: string[] = [];
+    const logger = (msg: string) => { logs.push(msg); };
+
+    const processPromise = processSingleFile(map, '/fake/path', 'ascii', logger);
+
+    mockStream.write(buf);
+    mockStream.end();
+
+    const results = await processPromise;
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe('0000000000000000000000000000000000000001');
+    expect(logs.some((l) => l.includes('of ~'))).toBe(true);
     vi.restoreAllMocks();
   });
 

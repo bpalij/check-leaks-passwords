@@ -9,6 +9,7 @@ const makeSampleData = (): hashWithLeaksAndPasswordObjects[] => [
     hash: 'ABC123',
     leaks: 1000,
     readableLeaks: '1 000',
+    compactLeaks: '1 K',
     passwordObjects: [
       { login_password: 'pass1', name: 'site1' },
     ],
@@ -28,6 +29,7 @@ describe('JSON output handler', () => {
       expect(content[0].passwordObjects[0].login_password_hash).toBe('ABC123');
       expect(content[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(content[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
+      expect(content[0].passwordObjects[0].login_password_compact_leaks).toBe('1 K');
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }
@@ -38,6 +40,7 @@ describe('JSON output handler', () => {
       hash: 'A',
       leaks: 1,
       readableLeaks: '1',
+      compactLeaks: '1',
       passwordObjects: [
         {
           login: {
@@ -75,6 +78,7 @@ describe('JSON output handler', () => {
       expect(obj.login_password_hash).toBe('A');
       expect(obj.login_password_leaks).toBe(1);
       expect(obj.login_password_readable_leaks).toBe('1');
+      expect(obj.login_password_compact_leaks).toBe('1');
 
       const obj2 = objs[1];
       expect(obj2.login).toBeUndefined();
@@ -82,6 +86,7 @@ describe('JSON output handler', () => {
       expect(obj2.login_password_hash).toBe('A');
       expect(obj2.login_password_leaks).toBe(1);
       expect(obj2.login_password_readable_leaks).toBe('1');
+      expect(obj2.login_password_compact_leaks).toBe('1');
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }

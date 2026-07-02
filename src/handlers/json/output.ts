@@ -4,7 +4,7 @@ import { hashWithLeaksAndPasswordObjects } from '../../interfaces/types';
 const JSON_KEY_ORDER_NESTED = [
   'name', 'folderName', 'typeLabel',
   'login',
-  'login_password_hash', 'login_password_leaks', 'login_password_readable_leaks',
+  'login_password_hash', 'login_password_leaks', 'login_password_readable_leaks', 'login_password_compact_leaks',
   'hasTotp', 'hasPasskey', 'uriCount', 'hasCustomFields', 'passwordAgeDays',
   'notes', 'organizationId', 'deletedDate',
   'id', 'folderId', 'favorite', 'type', 'reprompt', 'repromptLabel',
@@ -15,7 +15,7 @@ const JSON_KEY_ORDER_NESTED = [
 const JSON_KEY_ORDER_FLAT = [
   'name', 'folderName', 'typeLabel',
   'login_uris', 'login_username', 'login_password', 'login_totp',
-  'login_password_hash', 'login_password_leaks', 'login_password_readable_leaks',
+  'login_password_hash', 'login_password_leaks', 'login_password_readable_leaks', 'login_password_compact_leaks',
   'hasTotp', 'uriCount', 'passwordAgeDays',
   'notes', 'organizationId', 'deletedDate',
   'favorite', 'type', 'reprompt',
@@ -71,6 +71,7 @@ const writeJsonOutputFile = async (
           login_password_hash: group.hash,
           login_password_leaks: group.leaks,
           login_password_readable_leaks: group.readableLeaks,
+          login_password_compact_leaks: group.compactLeaks,
         };
         const stripped = stripEmpty(withLeaks);
         if (stripped === undefined) return undefined;

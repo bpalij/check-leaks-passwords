@@ -17,6 +17,7 @@ describe('parseBuffer', () => {
     expect(results[0].leaks).toBe(1000);
     expect(results[0].hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
     expect(results[0].readableLeaks).toBe('1 000');
+    expect(results[0].compactLeaks).toBe('1 K');
     expect(stats.linesProcessed).toBe(1);
     expect(stats.matchedHashCount).toBe(1);
     expect(stats.cumulativeLeakCount).toBe(1000);

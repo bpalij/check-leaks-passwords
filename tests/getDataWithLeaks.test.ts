@@ -40,7 +40,7 @@ describe('getDataWithLeaks', () => {
     ).rejects.toThrow();
   });
 
-  it('passes logger and numberOfLines correctly to single file path', async () => {
+  it('passes logger correctly to single file path', async () => {
     const map = makeMap('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
     const logs: string[] = [];
     const mockLog = (msg: string) => { logs.push(msg); };

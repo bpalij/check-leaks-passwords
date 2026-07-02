@@ -73,6 +73,7 @@ export interface passwordObjectWithInjectedHash {
 export interface passwordObjectWithInjectedHashAndLeaks extends passwordObjectWithInjectedHash {
   login_password_leaks: string,
   login_password_readable_leaks: string,
+  login_password_compact_leaks: string,
 }
 
 export interface hashWithPasswordObjects {
@@ -83,4 +84,5 @@ export interface hashWithPasswordObjects {
 export interface hashWithLeaksAndPasswordObjects extends hashWithPasswordObjects {
   leaks: number,
   readableLeaks: string,
+  compactLeaks: string,
 }

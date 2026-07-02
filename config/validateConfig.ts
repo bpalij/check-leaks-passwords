@@ -21,10 +21,6 @@ export default function validateConfig(config: Readonly<configInterface>): void 
     }
   }
 
-  if (typeof config.countLinesInHashesFile !== 'boolean') {
-    throw new Error('countLinesInHashesFile must be a boolean');
-  }
-
   if (!Array.isArray(config.outputs) || config.outputs.length === 0) {
     throw new Error('At least one output must be configured in config.outputs');
   }

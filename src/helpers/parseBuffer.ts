@@ -3,6 +3,7 @@ import {
   hashWithLeaksAndPasswordObjects,
 } from '../interfaces/types';
 import beautifullyPrintNumber from './beautifullyPrintNumber';
+import beautifullyPrintCompact from './beautifullyPrintCompact';
 
 const NEWLINE = 0x0A;
 const COLON = 0x3A;
@@ -68,6 +69,7 @@ export default function parseBuffer(
               hash: prefix + hashSuffix,
               leaks: leakCount,
               readableLeaks: beautifullyPrintNumber(leakCount),
+              compactLeaks: beautifullyPrintCompact(leakCount),
               passwordObjects: matchingPasswordObjects,
             });
           }

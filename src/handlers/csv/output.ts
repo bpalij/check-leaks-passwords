@@ -12,6 +12,7 @@ const COLUMNS_ORDER = [
   'login_password_hash',
   'login_password_leaks',
   'login_password_readable_leaks',
+  'login_password_compact_leaks',
   'login_totp',
   'hasTotp',
   'uriCount',
@@ -94,13 +95,14 @@ const writePreparedDataToCsv = (
 ): Promise<void> => {
   const rows: Array<Record<string, string>> = data.flatMap((group) => {
     const {
-      hash, leaks, readableLeaks, passwordObjects,
+      hash, leaks, readableLeaks, compactLeaks, passwordObjects,
     } = group;
     return passwordObjects.map((obj) => ({
       ...flattenNestedRow(obj as Record<string, unknown>),
       login_password_hash: hash,
       login_password_leaks: String(leaks),
       login_password_readable_leaks: readableLeaks,
+      login_password_compact_leaks: compactLeaks,
     }));
   });
 

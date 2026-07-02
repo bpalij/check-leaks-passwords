@@ -6,7 +6,6 @@ import beautifullyPrintNumber from './helpers/beautifullyPrintNumber';
 import convertArrayWithHashesToMap from './helpers/convertArrayWithHashesToMap';
 import extractPassword from './helpers/extractPassword';
 import getDataWithLeaks from './helpers/getDataWithLeaks';
-import countLinesInHashesFile from './helpers/countLinesInHashesFile';
 import timeDurationBetweenDatesInWords from './helpers/timeDurationBetweenDatesInWords';
 import processHibpApi from './helpers/processHibpApi';
 
@@ -42,24 +41,12 @@ export default async (
 
   let dataWithLeaks;
   if (config.useHibpApi) {
-    if (config.countLinesInHashesFile) {
-      timedLog('Skipped counting lines in hashes file because useHibpApi is enabled');
-    }
     timedLog('Checking hashes for leaks via HIBP API');
     dataWithLeaks = await processHibpApi(hashesMap, timedLog);
     timedLog('Checked hashes for leaks');
   } else {
-    let numberOfLines: number | undefined;
-    if (config.countLinesInHashesFile) {
-      timedLog('Counting lines in hashes file before checking for leaks');
-      numberOfLines = await countLinesInHashesFile(config.hashesOfLeaksPath, timedLog);
-      timedLog('Counted lines in hashes file');
-    } else {
-      timedLog('Skipped counting lines in hashes file');
-    }
-
     timedLog('Checking hashes for leaks');
-    dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'ascii', timedLog, numberOfLines);
+    dataWithLeaks = await getDataWithLeaks(hashesMap, config.hashesOfLeaksPath, 'ascii', timedLog);
     timedLog('Checked hashes for leaks');
   }
 

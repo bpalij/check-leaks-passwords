@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/worker",
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": false
+  },
+  "include": [
+    "src/io/processChunkWorker.ts"
+  ]
+}

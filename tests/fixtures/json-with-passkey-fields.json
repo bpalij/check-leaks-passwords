@@ -1,0 +1,26 @@
+{
+  "folders": [
+    { "id": "1", "name": "Social" }
+  ],
+  "items": [
+    {
+      "folderId": "1",
+      "favorite": false,
+      "type": 1,
+      "name": "With Passkey and Fields",
+      "notes": null,
+      "fields": [
+        { "name": "Custom Field", "value": "custom value", "type": 0 }
+      ],
+      "reprompt": 0,
+      "revisionDate": "2024-01-15T10:00:00.000Z",
+      "login": {
+        "password": "passkeypass",
+        "username": "user@example.com",
+        "uris": [{ "uri": "https://example.com", "match": null }],
+        "totp": "otpauth://totp/example",
+        "fido2Credentials": [{ "credentialId": "abc123" }]
+      }
+    }
+  ]
+}

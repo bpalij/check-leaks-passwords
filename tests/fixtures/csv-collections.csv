@@ -1,0 +1,3 @@
+login_password,name,type,reprompt,collections
+pass1,Site A,login,0,WorkStuff
+pass2,Site B,identity,1,

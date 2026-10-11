@@ -1,50 +1,121 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# check-leaks-passwords Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Correctness Above All (NON-NEGOTIABLE)
+Incorrect output is unacceptable. Prefer explicit errors over incorrect results.
+MUST NOT silently drop, corrupt, or transform data unless explicitly intended.
+Validate assumptions and important invariants. Consider normal, edge-case,
+corrupted, adversarial, and very large inputs. Handle failures and invalid states
+explicitly. Before completion, MUST review for logical bugs, hidden edge cases,
+incorrect assumptions, and design flaws. Passing tests or compilation MUST NOT be
+treated as proof of correctness. Verify both success and failure scenarios. If
+correctness cannot be guaranteed, MUST stop and explain why.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Secret Confidentiality & Cryptographic Safety (NON-NEGOTIABLE)
+Leaking secrets is unacceptable. MUST NOT send sensitive data externally, log or
+expose secrets, or write secrets to disk except as intended output. Minimize
+secret lifetime in memory; clear sensitive buffers when practical. Avoid
+unnecessary copies of sensitive data. MUST NOT expose encryption keys, master
+passwords, cryptographic material, or decrypted vault contents. Decrypt sensitive
+data only when necessary. Use secure defaults and audit security issues during
+implementation and review. Avoid unnecessary third-party dependencies in
+security-critical code. Sensitive data includes: Bitwarden exports
+(encrypted/decrypted), encryption keys and cryptographic material, master
+passwords, passwords and password hashes, vault secrets, authentication tokens,
+sensitive API responses, derived values from secrets, decrypted temporary data,
+and anything that can recover protected information.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Streaming & Bounded Memory (NON-NEGOTIABLE)
+MUST NOT load the whole HIBP dataset into memory. Prefer streaming algorithms and
+scalable designs. Assume pessimistic input sizes: never design only for current
+sizes and assume future datasets 5–10× larger. Minimize unnecessary work,
+allocations, and copies. Consider worst-case memory and execution time. Optimize
+without compromising correctness, security, or reliability, and add complexity
+only when justified by real requirements.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Reliability & Determinism
+Avoid crashes caused by bugs, invalid input, or resource exhaustion. Handle
+corrupted input and I/O failures gracefully. Prefer streaming over large buffers.
+Release resources correctly and clean up after failures. Avoid partial outputs or
+corrupted temporary files. Produce deterministic results for identical inputs.
+Detect unexpected states instead of silently continuing.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Testable, Documented Code Quality
+Keep code simple, readable, and maintainable. Avoid overengineering and
+unnecessary abstraction. Follow good engineering principles (Clean Code, GRASP,
+SOLID where applicable). Prefer descriptive names and constants over magic
+numbers. Reduce duplication and keep modules focused. Prefer named exports. Keep
+code naturally testable; avoid hidden state and unnecessary coupling. MUST NOT
+suppress TypeScript/ESLint warnings without justification. Add JSDoc to all
+exported functions, classes, interfaces, types, and constants, including
+@param, @returns, @throws, and @security where relevant. Non-exported functions in
+security-critical modules (`crypto/`, `memory/secureCleanup`) MUST also have
+JSDoc. Use inline comments for complex internal logic, non-obvious algorithms,
+and security-critical code paths; do not over-document trivial code. Keep
+comments synchronized with code.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. Testing Discipline
+Add tests for behavioral changes and regression tests for bugs whenever
+practical. Use unit and integration tests where appropriate. Tests MUST be
+deterministic, reproducible, and isolated; MUST NOT be flaky. Control time,
+randomness, and external dependencies. Prefer behavior tests over
+implementation-detail tests. Test edge cases, failures, and important invariants.
+Do not optimize only for coverage metrics; test meaningful behavior. Test
+locations: unit tests as `*.unit.test.ts` near implementation; integration tests
+as `*.integration.test.ts` near implementation; shared tests/fixtures/workflows
+under `tests/`.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### VII. Validation Gates Before Completion
+Before completion, MUST verify the Node.js version satisfies the `package.json`
+engine requirement, preferring the `.nvmrc` version for reproducibility. MUST run
+linting, type checking, and the complete test suite, and check coverage. Fix
+errors instead of suppressing them. MUST NOT lower coverage thresholds without
+approval. If validation cannot be run, explain why.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Additional Constraints
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+**Priority order.** Correctness and Security are critical and equally important;
+MUST NOT trade one against the other without strong justification. Secondary
+priorities, in order of importance, are Reliability & Durability, Performance,
+then Code Quality & Testability. Prefer higher-ranked priorities when tradeoffs
+are required.
+
+**Dependency policy.** MUST NOT use undeclared npm dependencies or import
+packages missing from `package.json`. Prefer existing dependencies or the
+standard library. Before adding a dependency, evaluate necessity, alternatives,
+security risks, maintenance status, and size compatibility. Prefer maintained,
+widely used packages, and explain meaningful dependency risks before adding them.
+
+**Dataset facts (2026-06).** The single-file HIBP dataset is ~89 GB with ~2
+billion lines; the multi-file form is ~89 GB across 16^5 (~1M) files of ~55–99 KB
+each. These constraints drive Principle III: never load the whole dataset into
+memory, prefer streaming, assume 5–10× growth, and bound worst-case memory and
+execution time.
+
+## Development Workflow & Quality Gates
+
+Every change MUST pass the validation gates in Principle VII before completion:
+Node version check, lint, typecheck, complete test suite, and coverage. Keep
+docs/specs synchronized with code; treat code/tests as truth if documentation
+conflicts. State assumptions when uncertain, explain important tradeoffs, and
+present options before asking questions. Consider edge cases and failure modes
+before implementation. Avoid unrelated changes; mention out-of-scope improvements
+separately. Code review MUST verify constitution compliance.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other project practices where they conflict.
+`AGENTS.md` is the runtime development guidance file and MUST be consulted for
+operational detail; it MUST NOT override this constitution. Amendments MUST be
+documented, versioned according to the policy below, and applied to
+`.specify/memory/constitution.md`; a migration note MUST accompany structural
+changes. The `/speckit.plan` Constitution Check gate MUST pass before research
+and MUST be re-checked after design; complexity violations MUST be justified.
+Versioning follows semantic versioning: MAJOR for backward-incompatible governance
+or principle removals/redefinitions, MINOR for a new principle/section or
+materially expanded guidance, PATCH for clarifications and non-semantic
+refinements. If the bump type is ambiguous, reasoning MUST be proposed before
+finalizing.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11

@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   IDX_HEADER_SIZE_V2,
   IDX_VERSION_V2,
+  IDX_VERSION_V3,
   IDX_HASH_TYPE_SHA1,
   IDX_HASH_TYPE_NTLM,
   IDX_HASH_TYPE_UNKNOWN,
@@ -17,7 +18,7 @@ import {
 } from './indexHeader.js';
 
 describe('indexHeader', () => {
-  it('encodes a v2 header with the sorted flag at byte 0', () => {
+  it('encodes a v3 header with the sorted flag at byte 0', () => {
     const buf = encodeIndexHeader({
       sorted: true,
       hashType: IDX_HASH_TYPE_SHA1,
@@ -27,7 +28,7 @@ describe('indexHeader', () => {
 
     expect(buf.length).toBe(IDX_HEADER_SIZE_V2);
     expect(buf[0]).toBe(0x01);
-    expect(buf[1]).toBe(IDX_VERSION_V2);
+    expect(buf[1]).toBe(IDX_VERSION_V3);
     expect(buf[2]).toBe(IDX_HASH_TYPE_SHA1);
   });
 
@@ -42,7 +43,7 @@ describe('indexHeader', () => {
 
     expect(decoded).toEqual({
       sorted: false,
-      version: IDX_VERSION_V2,
+      version: IDX_VERSION_V3,
       hashType: IDX_HASH_TYPE_NTLM,
       mtime: 1_700_000_000n,
       fileSize: 89_000_000_000n,
@@ -68,6 +69,22 @@ describe('indexHeader', () => {
     }));
     expect(checkIndexHeader(header, { hashType: IDX_HASH_TYPE_NTLM, fileSize: 100 }))
       .toEqual({ ok: true });
+  });
+
+  it('rejects a V2-stamped header even with the sorted flag set (FR-008)', () => {
+    const buf = encodeIndexHeader({
+      sorted: true,
+      hashType: IDX_HASH_TYPE_SHA1,
+      mtime: 0n,
+      fileSize: 1n,
+    });
+    buf[1] = IDX_VERSION_V2;
+
+    const result = checkIndexHeader(decodeIndexHeader(buf), {
+      hashType: IDX_HASH_TYPE_SHA1,
+      fileSize: 1,
+    });
+    expect(result).toEqual({ ok: false, reason: expect.stringContaining('version') });
   });
 
   it('rejects a legacy header version', () => {

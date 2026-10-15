@@ -11,10 +11,18 @@ import { binarySearchReader } from './readModes/binarySearch.js';
 import { indexReader } from './readModes/indexBased.js';
 import { determineOptimalChunkCount } from '../memory/determineOptimalChunkCount.js';
 import { detectSortedness } from '../hashing/detectSortedness.js';
-import { IDX_HEADER_SIZE, IDX_PREFIX_COUNT } from '../constants.js';
+import {
+  IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_VERSION_V3, SMALL_FILE_BYTES_THRESHOLD,
+} from '../constants.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { buildHashLookupMap } from '../hashing/buildLookupMap.js';
 import { makeLookupMap } from '../../tests/helpers/makeLookupMap.js';
+import { writeLargeSha1Corpus, type LargeCorpusMatch } from '../../tests/helpers/largeCorpus.js';
+
+// A corpus just above the sortedness threshold (>= 1 GiB): below it the
+// sortedness verdict is `skipped`, which disables `.idx` builds and rejects
+// forced binary/index modes.
+const LARGE_CORPUS_BYTES = SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024;
 
 function loadIdx(idxPath: string): BigUint64Array {
   const idxFile = fs.readFileSync(idxPath);
@@ -60,6 +68,16 @@ describe('integration readers — real file I/O', () => {
     return dir;
   }
 
+  function makeLargeCorpus(
+    name: string,
+    matchIndices: number[],
+  ): { filePath: string; matches: LargeCorpusMatch[] } {
+    const dir = makeTmpDir();
+    const filePath = path.join(dir, name);
+    const { matches } = writeLargeSha1Corpus(filePath, LARGE_CORPUS_BYTES, matchIndices);
+    return { filePath, matches };
+  }
+
   it('binarySearchReader — real file I/O', { timeout: 30000 }, async () => {
     const { map, set, pwMap } = makeLookupMap(MATCH_HASHES, MATCH_PASSWORDS);
     const stat = fs.statSync(FIXTURE_PATH);
@@ -100,22 +118,30 @@ describe('integration readers — real file I/O', () => {
     expect(results).toHaveLength(0);
   });
 
-  it('indexReader — real file I/O', { timeout: 60000 }, async () => {
+  it('indexReader — real file I/O', { timeout: 120000 }, async () => {
+    const { filePath, matches } = makeLargeCorpus('idx-reader.txt', [
+      1000,
+      5000000,
+      20000000,
+    ]);
+    const hashes = matches.map((m) => m.hash);
+    const passwords = hashes.map((_h, i) => `idx-pw-${i}`);
+
     const pwMap = new Map<string, PasswordObject[]>();
-    MATCH_HASHES.forEach((h, i) => {
-      pwMap.set(h, [{ login_password: MATCH_PASSWORDS[i] }]);
+    hashes.forEach((h, i) => {
+      pwMap.set(h, [{ login_password: passwords[i] }]);
     });
 
-    await processSingleFile(pwMap, FIXTURE_PATH, 'ascii', undefined, undefined, undefined, 'auto', true);
-    const idxPath = `${FIXTURE_PATH}.idx`;
+    await processSingleFile(pwMap, filePath, 'ascii', undefined, undefined, undefined, 'sequential', true);
+    const idxPath = `${filePath}.idx`;
     expect(fs.existsSync(idxPath)).toBe(true);
     const idx = loadIdx(idxPath);
 
-    const { map, set } = makeLookupMap(MATCH_HASHES, MATCH_PASSWORDS);
-    const stat = fs.statSync(FIXTURE_PATH);
+    const { map, set } = makeLookupMap(hashes, passwords);
+    const stat = fs.statSync(filePath);
 
     const results = await indexReader(
-      FIXTURE_PATH,
+      filePath,
       stat.size,
       map,
       set,
@@ -124,19 +150,25 @@ describe('integration readers — real file I/O', () => {
       pwMap,
     );
 
-    expect(results).toHaveLength(MATCH_HASHES.length);
+    expect(results).toHaveLength(hashes.length);
     const resultMap = new Map(results.map((r) => [r.hash, r]));
-    MATCH_HASHES.forEach((h, i) => {
+    hashes.forEach((h, i) => {
       const r = resultMap.get(h);
       expect(r).toBeDefined();
-      expect(r!.passwordObjects[0].login_password).toBe(MATCH_PASSWORDS[i]);
+      expect(r!.passwordObjects[0].login_password).toBe(passwords[i]);
     });
   });
 
-  it('processSingleFile — forced binary via env var', { timeout: 30000 }, async () => {
+  it('processSingleFile — forced binary via env var', { timeout: 120000 }, async () => {
+    const { filePath, matches } = makeLargeCorpus('forced-binary.txt', [
+      1000,
+      5000000,
+      20000000,
+    ]);
+    const hashes = matches.map((m) => m.hash);
     const pwMap = new Map<string, PasswordObject[]>();
-    MATCH_HASHES.forEach((h, i) => {
-      pwMap.set(h, [{ login_password: MATCH_PASSWORDS[i] }]);
+    hashes.forEach((h, i) => {
+      pwMap.set(h, [{ login_password: `forced-bin-${i}` }]);
     });
 
     const logs: string[] = [];
@@ -147,12 +179,12 @@ describe('integration readers — real file I/O', () => {
     try {
       const results = await processSingleFile(
         pwMap,
-        FIXTURE_PATH,
+        filePath,
         'ascii',
         logger,
       );
 
-      expect(results).toHaveLength(MATCH_HASHES.length);
+      expect(results).toHaveLength(hashes.length);
       expect(logs.some((l) => l.includes('Binary search'))).toBe(true);
     } finally {
       if (savedEnv === undefined) delete process.env.READ_MODE_FORCED;
@@ -160,17 +192,23 @@ describe('integration readers — real file I/O', () => {
     }
   });
 
-  it('processSingleFile — forced index via env var', { timeout: 60000 }, async () => {
+  it('processSingleFile — forced index via env var', { timeout: 120000 }, async () => {
+    const { filePath, matches } = makeLargeCorpus('forced-index.txt', [
+      1000,
+      5000000,
+      20000000,
+    ]);
+    const hashes = matches.map((m) => m.hash);
     const pwMap = new Map<string, PasswordObject[]>();
-    MATCH_HASHES.forEach((h, i) => {
-      pwMap.set(h, [{ login_password: MATCH_PASSWORDS[i] }]);
+    hashes.forEach((h, i) => {
+      pwMap.set(h, [{ login_password: `forced-idx-${i}` }]);
     });
 
-    await processSingleFile(pwMap, FIXTURE_PATH, 'ascii', undefined, undefined, undefined, 'auto', true);
-    const idxPath = `${FIXTURE_PATH}.idx`;
+    await processSingleFile(pwMap, filePath, 'ascii', undefined, undefined, undefined, 'sequential', true);
+    const idxPath = `${filePath}.idx`;
     expect(fs.existsSync(idxPath)).toBe(true);
     const idxStat = fs.statSync(idxPath);
-    const fileStat = fs.statSync(FIXTURE_PATH);
+    const fileStat = fs.statSync(filePath);
     expect(idxStat.mtimeMs).toBeGreaterThan(fileStat.mtimeMs);
 
     const indexLogs: string[] = [];
@@ -181,12 +219,12 @@ describe('integration readers — real file I/O', () => {
     try {
       const results = await processSingleFile(
         pwMap,
-        FIXTURE_PATH,
+        filePath,
         'ascii',
         indexLogger,
       );
 
-      expect(results).toHaveLength(MATCH_HASHES.length);
+      expect(results).toHaveLength(hashes.length);
       expect(indexLogs.some((l) => l.includes('Index read'))).toBe(true);
     } finally {
       if (savedEnv === undefined) delete process.env.READ_MODE_FORCED;
@@ -299,26 +337,26 @@ describe('integration readers — real file I/O', () => {
     }
   });
 
-  it('detectSortedness — reads .idx cache built by previous run', { timeout: 60000 }, async () => {
+  it('detectSortedness — reads V3 .idx cache built by previous run', { timeout: 120000 }, async () => {
     const dir = makeTmpDir();
     const filePath = path.join(dir, 'sorted-cache-hashes.txt');
 
-    const totalLines = 500;
-    const lines: string[] = [];
-    for (let i = 0; i < totalLines; i += 1) {
-      const h = i.toString(16).toUpperCase().padStart(40, '0');
-      lines.push(`${h}:${10 + i}`);
-    }
-    fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'ascii');
+    // Sortedness is only established for files >= 1 GiB, and a `.idx` is only
+    // built for verified-sorted input, so the cache test needs a large corpus.
+    writeLargeSha1Corpus(filePath, SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024, [500]);
 
     const pwMap = new Map<string, PasswordObject[]>();
 
-    await processSingleFile(pwMap, filePath, 'ascii', undefined, undefined, undefined, 'auto', true);
+    await processSingleFile(pwMap, filePath, 'ascii', undefined, undefined, undefined, 'sequential', true);
     const idxPath = `${filePath}.idx`;
     expect(fs.existsSync(idxPath)).toBe(true);
 
+    // The freshly built index must be stamped with the current V3 version.
+    const idxBytes = fs.readFileSync(idxPath);
+    expect(idxBytes[1]).toBe(IDX_VERSION_V3);
+
     const sortednessWithoutCache = await detectSortedness(filePath);
-    expect(sortednessWithoutCache).toBe(true);
+    expect(sortednessWithoutCache).toBe('sorted');
 
     const idxStat = fs.statSync(idxPath);
     const fileStat = fs.statSync(filePath);

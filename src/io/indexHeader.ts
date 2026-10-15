@@ -1,6 +1,6 @@
 import {
   IDX_HEADER_SIZE_V2,
-  IDX_VERSION_V2,
+  IDX_VERSION_V3,
   IDX_HASH_TYPE_UNKNOWN,
   IDX_HASH_TYPE_SHA1,
   IDX_HASH_TYPE_NTLM,
@@ -10,14 +10,14 @@ import {
 } from '../constants.js';
 
 /**
- * Decoded `.idx` (v2) header fields.
+ * Decoded `.idx` (v3) header fields.
  *
  * @security The header contains no secrets — only corpus metadata.
  */
 export interface IndexHeader {
   /** Whether the indexed corpus was sorted when the index was built. */
   sorted: boolean;
-  /** Header layout version marker (`IDX_VERSION_V2` for v2). */
+  /** Header layout version marker (`IDX_VERSION_V3` for v3). */
   version: number;
   /** Hash-type code (`IDX_HASH_TYPE_SHA1` or `IDX_HASH_TYPE_NTLM`). */
   hashType: number;
@@ -40,7 +40,7 @@ export function hashTypeCodeFor(fullHashLength: number): number {
 }
 
 /**
- * Encode a v2 `.idx` header buffer.
+ * Encode a v3 `.idx` header buffer.
  *
  * Layout: byte 0 sorted flag, byte 1 version marker, byte 2 hash-type code,
  * bytes 3–10 mtime (BigInt64LE), bytes 11–18 file size (BigUInt64LE).
@@ -61,7 +61,7 @@ export function encodeIndexHeader(params: {
 }): Buffer {
   const buf = Buffer.alloc(IDX_HEADER_SIZE_V2);
   buf[0] = params.sorted ? IDX_SORTED_FLAG_OK : 0;
-  buf[1] = IDX_VERSION_V2;
+  buf[1] = IDX_VERSION_V3;
   buf[2] = params.hashType & 0xff; // eslint-disable-line no-bitwise -- mask to one byte
   buf.writeBigInt64LE(params.mtime, 3);
   buf.writeBigUInt64LE(params.fileSize, 11);
@@ -69,7 +69,7 @@ export function encodeIndexHeader(params: {
 }
 
 /**
- * Decode a v2 `.idx` header buffer.
+ * Decode a v3 `.idx` header buffer.
  *
  * @param buf - Buffer whose first `IDX_HEADER_SIZE_V2` bytes are the header.
  * @returns The decoded header fields.
@@ -108,7 +108,7 @@ export function checkIndexHeader(
   header: IndexHeader,
   expected: { hashType: number; fileSize: number },
 ): { ok: true } | { ok: false; reason: string } {
-  if (header.version !== IDX_VERSION_V2) {
+  if (header.version !== IDX_VERSION_V3) {
     return { ok: false, reason: `legacy or unknown index version ${header.version}` };
   }
   if (header.hashType !== expected.hashType) {

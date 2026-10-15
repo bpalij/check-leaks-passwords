@@ -159,6 +159,20 @@ export type OutputHandlerOptions = {
 };
 
 /**
+ * Tri-state outcome of the sortedness check.
+ *
+ * - `sorted`: corpus >= 1 GiB and verified ordered (live check or fresh V3
+ *   `.idx` cache hit); enables order-dependent reading (binary/index) and
+ *   `.idx` builds.
+ * - `unsorted`: corpus >= 1 GiB and verified not ordered; `.idx` unlinked,
+ *   sequential read only.
+ * - `skipped`: corpus < 1 GiB — the check does not run, so no sorted/unsorted
+ *   claim is made (FR-014). Applies the same fallback as `unsorted` (`.idx`
+ *   unlinked, sequential read only) but never enables order-dependent reading.
+ */
+export type SortednessVerdict = 'sorted' | 'unsorted' | 'skipped';
+
+/**
  * Read mode for single-file HIBP processing.
  *
  * - `auto`: Automatically select the best mode based on file characteristics.

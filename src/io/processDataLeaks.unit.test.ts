@@ -8,8 +8,10 @@ import { vi } from 'vitest';
 import { processDataLeaks } from './processDataLeaks.js';
 import * as determineOptimalChunkCountModule from '../memory/determineOptimalChunkCount.js';
 import type { PasswordObject } from '../types.js';
+import { SMALL_FILE_BYTES_THRESHOLD } from '../constants.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
+import { writeLargeSha1Corpus } from '../../tests/helpers/largeCorpus.js';
 
 const fixturesDir = FIXTURES_DIR;
 
@@ -146,19 +148,21 @@ describe('processDataLeaks', () => {
   });
 
   describe('build index end-to-end', () => {
-    it('creates .idx file and index mode reads it', async () => {
+    it('creates .idx file and index mode reads it', { timeout: 120000 }, async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-idx-'));
       try {
         const hashFile = path.join(tmpDir, 'hashes.txt');
-        const lines: string[] = [];
-        for (let i = 0; i < 50; i += 1) {
-          lines.push(`${i.toString(16).toUpperCase().padStart(40, '0')}:${100 + i}`);
-        }
-        fs.writeFileSync(hashFile, `${lines.join('\n')}\n`, 'ascii');
+        // A `.idx` is only built for verified-sorted input, which requires a
+        // corpus at or above the 1 GiB sortedness threshold.
+        const { matches } = writeLargeSha1Corpus(
+          hashFile,
+          SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024,
+          [100],
+          7,
+        );
 
-        const map = makeMap(lines[0].split(':')[0]);
         const result = await processDataLeaks(
-          map,
+          makeMap(matches[0].hash),
           hashFile,
           'ascii',
           undefined,
@@ -167,7 +171,7 @@ describe('processDataLeaks', () => {
           true,
         );
         expect(result).toHaveLength(1);
-        expect(result[0].leaks).toBe(100);
+        expect(result[0].leaks).toBe(7);
 
         const idxPath = `${hashFile}.idx`;
         expect(fs.existsSync(idxPath)).toBe(true);

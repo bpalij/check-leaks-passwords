@@ -9,8 +9,10 @@ import { checkPasswordsLeaks } from '../src/checkPasswordsLeaks.js';
 import * as determineOptimalChunkCountModule from '../src/memory/determineOptimalChunkCount.js';
 import { generateEncryptedExport } from '../src/crypto/generateEncryptedExport.js';
 import type { ConfigInterface } from '../src/types.js';
+import { SMALL_FILE_BYTES_THRESHOLD } from '../src/constants.js';
 import { FIXTURES_DIR } from './helpers/fixturesDir.js';
 import { sha1 } from './helpers/sha1.js';
+import { writeLargeSha1Corpus } from './helpers/largeCorpus.js';
 
 vi.hoisted(() => {
   process.env.UV_THREADPOOL_SIZE = '42';
@@ -977,14 +979,12 @@ describe('checkPasswordsLeaks integration', () => {
     expect(fs.existsSync(outputPath)).toBe(false);
   });
 
-  it('build index then scan — full pipeline', { timeout: 30000 }, async () => {
+  it('build index then scan — full pipeline', { timeout: 180000 }, async () => {
     const outDir = makeTmpDir();
     const hashFile = path.join(outDir, 'hashes.txt');
-    const lines: string[] = [];
-    for (let i = 0; i < 200; i += 1) {
-      lines.push(`${i.toString(16).toUpperCase().padStart(40, '0')}:${100 + i}`);
-    }
-    fs.writeFileSync(hashFile, `${lines.join('\n')}\n`, 'ascii');
+    // A `.idx` is only built for verified-sorted input, which requires a
+    // corpus at or above the 1 GiB sortedness threshold.
+    writeLargeSha1Corpus(hashFile, SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024, []);
 
     const csvPath = path.join(outDir, 'input.csv');
     const csvLines = ['login_uri,login_username,login_password,name', 'https://example.com,user1,password1,Test1'];

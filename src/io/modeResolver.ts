@@ -7,6 +7,7 @@ import type {
   OnProgress,
   SingleFileReadMode,
   ForcedReadMode,
+  SortednessVerdict,
 } from '../types.js';
 import { detectSortedness } from '../hashing/detectSortedness.js';
 import { binarySearchReader } from './readModes/binarySearch.js';
@@ -81,33 +82,46 @@ export function resolveMode(
 /**
  * Detect file sortedness and clean up stale index files.
  *
- * If the file is not sorted, deletes any existing `.idx` file since
- * binary search and index-based reading require sorted input.
+ * `sorted` keeps any existing `.idx`; `unsorted` and `skipped` both delete it
+ * (binary search and index-based reading require sorted input, and below the
+ * 1 GiB threshold sortedness is never established). The `skipped` log is
+ * neutral — it must not claim the corpus is ordered or unordered (FR-014).
  *
  * @param filePath - Path to the HIBP hashes file.
  * @param logger - Optional logging callback.
  * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
  *   Defaults to 40 (SHA-1).
- * @returns True if the file is sorted.
+ * @returns The tri-state sortedness verdict.
  */
 export async function detectSortednessAndCleanup(
   filePath: string,
   logger?: (message: string) => void,
   fullHashLength?: number,
-): Promise<boolean> {
-  const sorted = await detectSortedness(filePath, fullHashLength);
-  logger?.(`File sorted: ${sorted ? 'yes' : 'no'}`);
-  if (!sorted) {
-    logger?.('Warning: file not sorted');
-    try { await fs.promises.unlink(`${filePath}.idx`); } catch { /* ok */ }
+): Promise<SortednessVerdict> {
+  const verdict = await detectSortedness(filePath, fullHashLength);
+  switch (verdict) {
+    case 'sorted':
+      logger?.('File sorted: yes');
+      break;
+    case 'unsorted':
+      logger?.('File sorted: no');
+      logger?.('Warning: file not sorted');
+      try { await fs.promises.unlink(`${filePath}.idx`); } catch { /* ok */ }
+      break;
+    case 'skipped':
+      logger?.('File < 1 GiB — sortedness check skipped; sequential read only');
+      try { await fs.promises.unlink(`${filePath}.idx`); } catch { /* ok */ }
+      break;
+    default:
+      break;
   }
-  return sorted;
+  return verdict;
 }
 
 /**
  * Load a `.idx` file into a BigUint64Array.
  *
- * The index file contains an `IDX_HEADER_SIZE`-byte v2 header (sorted flag,
+ * The index file contains an `IDX_HEADER_SIZE`-byte v3 header (sorted flag,
  * version marker, hash-type code, mtime, corpus file size) followed by
  * (IDX_PREFIX_COUNT + 1) 8-byte little-endian offsets.
  *

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import v8 from 'v8';
 
 import * as cliProgress from 'cli-progress';
 
@@ -123,8 +124,16 @@ try { await fs.promises.unlink(idxPath); } catch { /* no existing index */ }
  * byte offset in the data file.
  */
 const sortSpinner = createSpinner('Checking sortedness...').start();
-const sorted = await detectSortedness(filePath, fullHashLength);
-if (!sorted) {
+const verdict = await detectSortedness(filePath, fullHashLength);
+if (verdict === 'skipped') {
+  sortSpinner.stop();
+  try { await fs.promises.unlink(idxPath); } catch { /* ok */ }
+  console.error(
+    `Error: cannot verify sortedness below 1 GiB — ${filePath} is too small to index. Aborting.`,
+  );
+  process.exit(1);
+}
+if (verdict === 'unsorted') {
   sortSpinner.stop();
   try { await fs.promises.unlink(idxPath); } catch { /* ok */ }
   console.error(`Error: ${filePath} is not sorted — index would be incorrect. Aborting.`);
@@ -156,7 +165,9 @@ try {
     stat.size,
     chunkCount,
     new Map(),
-    Buffer.alloc(0),
+    // Workers unconditionally v8.deserialize the map payload; an empty map has
+    // no hashes to look up, but must still be a valid serialized value.
+    v8.serialize(new Map()),
     null,
     'ascii',
     new Map(),

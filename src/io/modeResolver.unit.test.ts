@@ -106,38 +106,60 @@ describe('detectSortednessAndCleanup', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns true and logs "File sorted: yes" when file is sorted', async () => {
-    vi.mocked(detectSortedness).mockResolvedValue(true);
+  it('returns "sorted" and logs "File sorted: yes" when file is sorted', async () => {
+    vi.mocked(detectSortedness).mockResolvedValue('sorted');
     const logger = vi.fn();
 
     const result = await detectSortednessAndCleanup('/path/file.txt', logger);
 
-    expect(result).toBe(true);
+    expect(result).toBe('sorted');
     expect(logger).toHaveBeenCalledWith('File sorted: yes');
     expect(logger).not.toHaveBeenCalledWith('Warning: file not sorted');
   });
 
-  it('returns false and logs "File sorted: no" plus warning when file is not sorted', async () => {
-    vi.mocked(detectSortedness).mockResolvedValue(false);
+  it('returns "unsorted" and logs "File sorted: no" plus warning when file is not sorted', async () => {
+    vi.mocked(detectSortedness).mockResolvedValue('unsorted');
     const logger = vi.fn();
 
     const result = await detectSortednessAndCleanup('/path/file.txt', logger);
 
-    expect(result).toBe(false);
+    expect(result).toBe('unsorted');
     expect(logger).toHaveBeenCalledWith('File sorted: no');
     expect(logger).toHaveBeenCalledWith('Warning: file not sorted');
   });
 
-  it('calls fs.promises.unlink with .idx path when sorted is false', async () => {
-    vi.mocked(detectSortedness).mockResolvedValue(false);
+  it('returns "skipped" with a neutral log and no "not sorted" claim (FR-014)', async () => {
+    vi.mocked(detectSortedness).mockResolvedValue('skipped');
+    const logger = vi.fn();
+
+    const result = await detectSortednessAndCleanup('/path/file.txt', logger);
+
+    expect(result).toBe('skipped');
+    expect(logger).toHaveBeenCalledWith(
+      'File < 1 GiB — sortedness check skipped; sequential read only',
+    );
+    const messages = logger.mock.calls.map((c) => String(c[0]));
+    expect(messages.some((m) => /not sorted|unsorted/i.test(m))).toBe(false);
+  });
+
+  it('calls fs.promises.unlink with .idx path when verdict is "unsorted"', async () => {
+    vi.mocked(detectSortedness).mockResolvedValue('unsorted');
 
     await detectSortednessAndCleanup('/path/file.txt');
 
     expect(fs.promises.unlink).toHaveBeenCalledWith('/path/file.txt.idx');
   });
 
-  it('does not call fs.promises.unlink when sorted is true', async () => {
-    vi.mocked(detectSortedness).mockResolvedValue(true);
+  it('calls fs.promises.unlink with .idx path when verdict is "skipped"', async () => {
+    vi.mocked(detectSortedness).mockResolvedValue('skipped');
+
+    await detectSortednessAndCleanup('/path/file.txt');
+
+    expect(fs.promises.unlink).toHaveBeenCalledWith('/path/file.txt.idx');
+  });
+
+  it('does not call fs.promises.unlink when verdict is "sorted"', async () => {
+    vi.mocked(detectSortedness).mockResolvedValue('sorted');
 
     await detectSortednessAndCleanup('/path/file.txt');
 
@@ -145,18 +167,18 @@ describe('detectSortednessAndCleanup', () => {
   });
 
   it('does not propagate error when unlink throws ENOENT', async () => {
-    vi.mocked(detectSortedness).mockResolvedValue(false);
+    vi.mocked(detectSortedness).mockResolvedValue('unsorted');
     vi.mocked(fs.promises.unlink).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
-    await expect(detectSortednessAndCleanup('/path/file.txt')).resolves.toBe(false);
+    await expect(detectSortednessAndCleanup('/path/file.txt')).resolves.toBe('unsorted');
   });
 
   it('works without logger and still returns correctly', async () => {
-    vi.mocked(detectSortedness).mockResolvedValue(true);
+    vi.mocked(detectSortedness).mockResolvedValue('sorted');
 
     const result = await detectSortednessAndCleanup('/path/file.txt');
 
-    expect(result).toBe(true);
+    expect(result).toBe('sorted');
   });
 });
 

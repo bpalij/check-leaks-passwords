@@ -123,8 +123,31 @@ export const BINARY_SEARCH_READ_SIZE = 256;
 export const HIBP_API_HASH_LENGTH = 35;
 
 // Sortedness check
-/** Number of random position pairs to check when detecting file sortedness. */
-export const SORTEDNESS_CHECK_PAIRS = 20;
+
+/**
+ * Strata size in bytes for deterministic sortedness sampling (4 GiB).
+ *
+ * Region count N = clamp(ceil(fileSize / SORTEDNESS_SAMPLE_STRATA_BYTES),
+ * SORTEDNESS_MIN_REGIONS, SORTEDNESS_MAX_REGIONS).
+ */
+export const SORTEDNESS_SAMPLE_STRATA_BYTES = 4 * 1024 * 1024 * 1024;
+
+/** Minimum number of sampled regions for corpora at or above the threshold (20). */
+export const SORTEDNESS_MIN_REGIONS = 20;
+
+/** Maximum number of sampled regions regardless of corpus size (256). */
+export const SORTEDNESS_MAX_REGIONS = 256;
+
+/** Bytes read per sampled region window (4096 >= 16 x MAX_LINE_BYTES). */
+export const SORTEDNESS_REGION_READ_BYTES = 4096;
+
+/**
+ * `.idx` header version marker written at byte 1 (v3 layout).
+ *
+ * V3 stamps the deterministic sortedness algorithm's results; any lower
+ * version is treated as stale and re-verified.
+ */
+export const IDX_VERSION_V3 = 0x03;
 
 // Estimation calibration — underestimate sequential, overestimate binary/index
 

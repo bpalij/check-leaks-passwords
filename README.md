@@ -44,7 +44,7 @@ CLI flags (`--include-secrets`, `--export-password`, `--dry-run`) override `.env
 The `singleFileReadMode` config field controls how the local hashes file is scanned.
 The `buildIndex` boolean controls whether a `.idx` prefix-index file is built as a side-effect during the scan.
 
-Modes marked with * require the file to be sorted lexicographically (the HIBP download is sorted). Running with an unsorted file will produce a warning and fall back to sequential.
+Modes marked with * require the file to be sorted lexicographically (the HIBP download is sorted). Sortedness is only verified for corpora at or above 1 GiB using deterministic cross-region sampling; the check reports `sorted`, `unsorted`, or `skipped` (below 1 GiB, no ordered/unordered claim). An `unsorted` file produces a warning and falls back to sequential; a `skipped` file logs a neutral skip notice and is read sequentially. Only `sorted` enables order-dependent reading or an `.idx` build.
 
 | Mode | `buildIndex: false` | `buildIndex: true` |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ Modes marked with * require the file to be sorted lexicographically (the HIBP do
 | `binary` * | Binary search for each hash. Fast for small hash counts on sorted files. | Same binary search. Falls back to sequential with index build if binary is not beneficial. |
 | `index` * | **Warning:** falls back to `auto` behavior without index building. | Random-read via a pre-built `.idx` file. Fastest mode for repeated runs on the same data. If no fresh `.idx` exists, the first run falls back to a sequential scan that builds the index as a side-effect; subsequent runs use the index. |
 
-**Auto-detection logic:** For files >= 1 GB a short drive speed test runs (three 16 MB reads). Sequential throughput above 300 MB/s classifies the drive as SSD; at or below that, as HDD. SSDs get multi-chunk parallel scanning (chunk count auto-scaled to disk speed, CPU cores, and available memory). HDDs get a single chunk. Files under 1 GB skip the speed test and use one chunk. `READ_MODE_FORCED` can override this to use binary or index on small files.
+**Auto-detection logic:** For files >= 1 GB a short drive speed test runs (three 16 MB reads). Sequential throughput above 300 MB/s classifies the drive as SSD; at or below that, as HDD. SSDs get multi-chunk parallel scanning (chunk count auto-scaled to disk speed, CPU cores, and available memory). HDDs get a single chunk. Files under 1 GB skip the speed test and use one chunk. Because sortedness is only verified at or above 1 GiB, `READ_MODE_FORCED=binary`/`index`/`sequential-index` is refused on smaller files (see [`READ_MODE_FORCED` Error Behavior](#read_mode_forced-error-behavior)).
 
 ### Hash Types
 
@@ -78,7 +78,7 @@ In both modes an ambiguous or unreadable corpus is a hard error. The effective t
 
 ### `READ_MODE_FORCED` Error Behavior
 
-When the `READ_MODE_FORCED` environment variable is set, it overrides `singleFileReadMode` entirely. If the forced mode requires a sorted file but the file is unsorted, the program **stops with an error** (and deletes any stale `.idx` file). An invalid value also stops the program immediately.
+When the `READ_MODE_FORCED` environment variable is set, it overrides `singleFileReadMode` entirely. Order-dependent modes (`binary`, `index`, `sequential-index`) require a verified-sorted corpus: if the file is unsorted, or is below the 1 GiB sortedness threshold (verdict `skipped`), the program **stops with an error** naming which condition applied — "not sorted" versus "not verified (file below 1 GiB)" — and deletes any stale `.idx` file. An invalid value also stops the program immediately. The `sequential-noindex` override always works, even on small or unsorted files.
 
 ## Environment Variables
 
@@ -122,7 +122,7 @@ node --permission --allow-fs-read=/path/to/hashes.txt --allow-fs-write=/path/to/
 | `npm run lint` | Lint source code (ESLint) |
 | `npm run lint-fix` | Lint and auto-fix |
 | `npm run typecheck` | Type-check with `tsc --noEmit` |
-| `npm run build-index` | Pre-build a `.idx` index file for a hashes file |
+| `npm run build-index` | Pre-build a `.idx` index file for a sorted hashes file (>= 1 GiB; refused below that or if unsorted) |
 | `npm run generate-fixtures` | Regenerate test fixtures for encrypted export tests |
 
 ## How It Works

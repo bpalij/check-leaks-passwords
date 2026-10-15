@@ -1,176 +1,120 @@
-/* eslint-disable no-continue */
 import fs from 'fs';
 
 import {
   IDX_HEADER_SIZE,
   IDX_SORTED_FLAG_OK,
-  SORTEDNESS_CHECK_PAIRS,
   SHA1_HEX_LENGTH,
+  SMALL_FILE_BYTES_THRESHOLD,
 } from '../constants.js';
+import type { SortednessVerdict } from '../types.js';
+import { checkIndexHeader, decodeIndexHeader, hashTypeCodeFor } from '../io/indexHeader.js';
+import {
+  assertNonOverlapInvariant,
+  checkAlignedWindowSorted,
+  checkBufferSorted,
+  computeRegionCount,
+  computeSampleOffsets,
+  readRegionSample,
+} from './sortednessSampling.js';
+
+/** Head/tail adjacency window size in bytes (100 lines x ~80 bytes). */
+const HEAD_TAIL_WINDOW_BYTES = 100 * 80;
 
 /**
- * Find the next newline character in a buffer.
+ * Detect whether a HIBP corpus is sorted, with a tri-state verdict.
  *
- * @param buf - The buffer to search.
- * @param start - Start position.
- * @param end - End position (exclusive).
- * @returns Index of the first 0x0A byte, or -1 if not found.
- */
-function findNewline(buf: Buffer, start: number, end: number): number {
-  for (let i = start; i < end; i += 1) {
-    if (buf[i] === 0x0A) return i;
-  }
-  return -1;
-}
-
-/**
- * Extract a hex hash from a line in the buffer.
- *
- * @param buf - The buffer containing the line.
- * @param lineStart - Start of the line.
- * @param lineEnd - End of the line (exclusive).
- * @param hashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
- * @returns The hex hash string, or null if the line is too short.
- */
-function extractHash(
-  buf: Buffer,
-  lineStart: number,
-  lineEnd: number,
-  hashLength: number,
-): string | null {
-  if (lineEnd - lineStart < hashLength) return null;
-  const end = lineEnd > lineStart && buf[lineEnd - 1] === 0x0D ? lineEnd - 1 : lineEnd;
-  if (end - lineStart < hashLength) return null;
-  return buf.toString('ascii', lineStart, lineStart + hashLength);
-}
-
-/**
- * Check if lines in a buffer are sorted in ascending hash order.
- *
- * Used by `detectSortedness()` to verify sortedness of HIBP file segments.
- *
- * @param buf - The buffer containing hash lines.
- * @param hashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
- * @returns True if all consecutive hash pairs are in non-decreasing order.
- */
-function checkBufferSorted(buf: Buffer, hashLength: number): boolean {
-  let lineStart = 0;
-  let prevHash: string | null = null;
-  const len = buf.length;
-
-  while (lineStart < len) {
-    const nl = findNewline(buf, lineStart, len);
-    const lineEnd = nl === -1 ? len : nl;
-
-    if (lineEnd - lineStart >= hashLength) {
-      const hash = extractHash(buf, lineStart, lineEnd, hashLength);
-      if (hash === null) {
-        lineStart = nl === -1 ? len : nl + 1;
-        continue;
-      }
-      if (prevHash !== null && prevHash > hash) return false;
-      prevHash = hash;
-    }
-
-    if (nl === -1) break;
-    lineStart = nl + 1;
-  }
-
-  return true;
-}
-
-/**
- * Skip forward to the next line start (after a newline).
- *
- * @param buf - The buffer to search.
- * @param start - Start position.
- * @param end - End position (exclusive).
- * @returns Index after the next newline, or -1 if no newline found.
- */
-function skipToLineStart(buf: Buffer, start: number, end: number): number {
-  for (let i = start; i < end; i += 1) {
-    if (buf[i] === 0x0A) return i + 1;
-  }
-  return -1;
-}
-
-/**
- * Detect whether a HIBP file is sorted in ascending SHA-1 hex order.
- *
- * Uses a three-phase approach:
- * 1. Check first 100 lines from start.
- * 2. Check last 100 lines near end.
- * 3. Check 20 random position pairs throughout the file.
- *
- * Also checks the `.idx` cache file for a pre-computed sortedness flag.
+ * Order of checks (each gate must not run before the previous one):
+ * 1. Skip gate: `fileSize < SMALL_FILE_BYTES_THRESHOLD` → `skipped` — no
+ *    corpus reads and no `.idx` consultation at all (FR-011, D2).
+ * 2. Cache gate: a fresh V3 `.idx` header (strictly newer mtime, version
+ *    `IDX_VERSION_V3`, matching hash type and file size) is trusted for its
+ *    sorted flag; any stale/V2/legacy/truncated header falls through to the
+ *    live check and is never trusted (FR-008).
+ * 3. Live check: bounded 8000-byte head and tail adjacency windows (FR-004),
+ *    then N = clamp(ceil(F / 4 GiB), 20, 256) deterministic evenly spaced
+ *    4096-byte region samples with intra-region adjacency verification and
+ *    cross-region anchor ordering (FR-001, FR-003, FR-013). Offsets are a
+ *    pure function of fileSize — identical corpora yield identical verdicts
+ *    (FR-002, FR-010).
  *
  * @param filePath - Path to the HIBP hashes file.
  * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
  *   Defaults to 40 (SHA-1).
- * @returns True if the file appears to be sorted.
+ * @returns `sorted`, `unsorted`, or `skipped` (below the 1 GiB threshold).
+ * @throws {Error} On the non-overlap invariant violation or I/O failures —
+ *   explicit failures, never silent passes (FR-012).
+ * @security Reads password hashes from the corpus; no hash values are ever
+ *   logged (FR-015).
  */
 export async function detectSortedness(
   filePath: string,
   fullHashLength: number = SHA1_HEX_LENGTH,
-): Promise<boolean> {
+): Promise<SortednessVerdict> {
   const stat = await fs.promises.stat(filePath);
   const fileSize = stat.size;
 
-  if (fileSize < fullHashLength + 5) return false;
+  // Gate 1 — skip gate: before any .idx stat/open or corpus read (D2, FR-011).
+  if (fileSize < SMALL_FILE_BYTES_THRESHOLD) return 'skipped';
 
-  // Check .idx cache — if a fresh index exists, read the sorted flag
+  // Gate 2 — V3 cache consult: the 19-byte header is read as a whole, so the
+  // version/hash-type/size checks cost no extra I/O (D5).
   const idxPath = `${filePath}.idx`;
   try {
     const idxStat = await fs.promises.stat(idxPath);
     if (idxStat.mtimeMs > stat.mtimeMs) {
-      await using fd = await fs.promises.open(idxPath, 'r');
-      const header = Buffer.alloc(IDX_HEADER_SIZE);
-      await fd.read(header, 0, IDX_HEADER_SIZE, 0);
-      // eslint-disable-next-line no-bitwise
-      return (header[0] & IDX_SORTED_FLAG_OK) !== 0;
+      await using idxFd = await fs.promises.open(idxPath, 'r');
+      const headerBuf = Buffer.alloc(IDX_HEADER_SIZE);
+      const { bytesRead } = await idxFd.read(headerBuf, 0, IDX_HEADER_SIZE, 0);
+      if (bytesRead === IDX_HEADER_SIZE) {
+        const check = checkIndexHeader(
+          decodeIndexHeader(headerBuf),
+          { hashType: hashTypeCodeFor(fullHashLength), fileSize },
+        );
+        if (check.ok) {
+          // eslint-disable-next-line no-bitwise -- flag byte unpacking
+          return (headerBuf[0] & IDX_SORTED_FLAG_OK) !== 0 ? 'sorted' : 'unsorted';
+        }
+      }
+      // Stale (V2/legacy, truncated, wrong hash type or size): re-verify live.
     }
-  } catch { /* .idx file not found */ }
+  } catch { /* .idx file not found — live check */ }
 
+  // Gate 3 — live deterministic check.
   await using fd = await fs.promises.open(filePath, 'r');
 
-  // Phase 1: Check first 100 lines from start
-  const startBytes = Math.min(100 * 80, fileSize);
-  const startBuf = Buffer.alloc(startBytes);
-  const { bytesRead: startRead } = await fd.read(startBuf, 0, startBytes, 0);
-  if (!checkBufferSorted(startBuf.subarray(0, startRead), fullHashLength)) return false;
+  const headBytes = Math.min(HEAD_TAIL_WINDOW_BYTES, fileSize);
+  const headBuf = Buffer.alloc(headBytes);
+  const { bytesRead: headRead } = await fd.read(headBuf, 0, headBytes, 0);
+  if (!checkBufferSorted(headBuf.subarray(0, headRead), fullHashLength)) return 'unsorted';
 
-  // Phase 2: Check last 100 lines near end
-  const endBytes = Math.min(100 * 80, fileSize);
-  const endBuf = Buffer.alloc(endBytes);
-  const { bytesRead: endRead } = await fd.read(endBuf, 0, endBytes, fileSize - endBytes);
-  if (!checkBufferSorted(endBuf.subarray(0, endRead), fullHashLength)) return false;
+  // The tail window starts at an arbitrary mid-line offset — skip its partial
+  // first line so the fragment cannot yield a bogus hash comparison.
+  const tailBuf = Buffer.alloc(headBytes);
+  const { bytesRead: tailRead } = await fd.read(tailBuf, 0, headBytes, fileSize - headBytes);
+  if (!checkAlignedWindowSorted(tailBuf.subarray(0, tailRead), fullHashLength)) return 'unsorted';
 
-  // Phase 3: Random positions — spot-check sortedness at random file offsets
-  const buf = Buffer.alloc(512);
-  for (let i = 0; i < SORTEDNESS_CHECK_PAIRS; i += 1) {
-    const maxStart = Math.max(1, fileSize - 512);
-    const pos = Math.floor(Math.random() * maxStart);
-    // eslint-disable-next-line no-await-in-loop
-    const { bytesRead } = await fd.read(buf, 0, 256, pos);
-    if (bytesRead < fullHashLength * 2 + 5) { continue; }
+  const regionCount = computeRegionCount(fileSize);
+  assertNonOverlapInvariant(fileSize, regionCount);
+  const offsets = computeSampleOffsets(fileSize, regionCount);
 
-    const lineStart = skipToLineStart(buf, 0, bytesRead);
-    if (lineStart === -1 || bytesRead - lineStart < fullHashLength * 2 + 5) {
-      continue;
+  let prevAnchor: string | null = null;
+  for (let i = 0; i < offsets.length; i += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const { anchor, adjacentInRegion } = await readRegionSample(fd, offsets[i], fullHashLength);
+      if (!adjacentInRegion) return 'unsorted';
+      if (prevAnchor !== null && prevAnchor > anchor) return 'unsorted';
+      prevAnchor = anchor;
+    } catch (err) {
+      // A window with no complete line is an explicit failure condition
+      // (corrupted input or constant drift) — reported unsorted with a
+      // diagnostic, never a silent pass (contract §5). Diagnostic carries an
+      // offset only, never corpus content (FR-015).
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error(`Sortedness check diagnostic: ${detail}`);
+      return 'unsorted';
     }
-
-    const nl1 = findNewline(buf, lineStart, bytesRead);
-    if (nl1 === -1) { continue; }
-    const hash1 = extractHash(buf, lineStart, nl1, fullHashLength);
-    if (!hash1) { continue; }
-
-    const nl2 = findNewline(buf, nl1 + 1, bytesRead);
-    if (nl2 === -1) { continue; }
-    const hash2 = extractHash(buf, nl1 + 1, nl2, fullHashLength);
-    if (!hash2) { continue; }
-
-    if (hash1 > hash2) return false;
   }
 
-  return true;
+  return 'sorted';
 }

@@ -10,12 +10,21 @@ import type { PasswordObject } from '../types.js';
 import { processSingleFile } from './processSingleFile.js';
 import {
   IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_SORTED_FLAG_OK, NTLM_HEX_LENGTH,
+  SMALL_FILE_BYTES_THRESHOLD,
 } from '../constants.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
+import {
+  LARGE_CORPUS_LINES_PER_PREFIX, writeLargeSha1Corpus,
+} from '../../tests/helpers/largeCorpus.js';
 
 const sha1OfPassword123 = 'E38AD214943DAAD1D64C102FAEC29DE4AFE9DA3D';
 const fixturesDir = FIXTURES_DIR;
+
+// A corpus just above the sortedness threshold (>= 1 GiB) so the index builder
+// actually runs; below the threshold sortedness is `skipped` and no `.idx` is
+// produced.
+const LARGE_CORPUS_BYTES = SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024;
 
 describe('processSingleFile integration (real workers)', () => {
   const tmpDirs: string[] = [];
@@ -98,24 +107,13 @@ describe('processSingleFile integration (real workers)', () => {
     }
   });
 
-  it('parallel sequential with buildIndex — .idx created from workers', { timeout: 60000 }, async () => {
+  it('parallel sequential with buildIndex — .idx created from workers', { timeout: 120000 }, async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-'));
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-index.txt');
-    const totalLines = 5000;
-    const matchHash = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-    const lines: string[] = [];
-    for (let i = 0; i < totalLines; i += 1) {
-      // Sorted ascending: a .idx is only built for sorted input
-      if (i === totalLines - 1) {
-        lines.push(`${matchHash}:42`);
-      } else {
-        const h = (i + 1).toString(16).toUpperCase().padStart(40, '0');
-        lines.push(`${h}:0`);
-      }
-    }
-    fs.writeFileSync(hashFilePath, `${lines.join('\n')}\n`, 'ascii');
+    const { matches } = writeLargeSha1Corpus(hashFilePath, LARGE_CORPUS_BYTES, [1000]);
+    const matchHash = matches[0].hash;
 
     const lookupMap = new Map<string, PasswordObject[]>();
     lookupMap.set(matchHash, [{ login_password: 'found-it' }]);
@@ -130,7 +128,7 @@ describe('processSingleFile integration (real workers)', () => {
         undefined,
         undefined,
         undefined,
-        'auto',
+        'sequential',
         true,
       );
 
@@ -155,74 +153,53 @@ describe('processSingleFile integration (real workers)', () => {
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-bootstrap.txt');
-    const totalLines = 5000;
-    const matchHash = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-    const lines: string[] = [];
-    for (let i = 0; i < totalLines; i += 1) {
-      // Sorted ascending: a .idx is only built for sorted input
-      if (i === totalLines - 1) {
-        lines.push(`${matchHash}:42`);
-      } else {
-        const h = (i + 1).toString(16).toUpperCase().padStart(40, '0');
-        lines.push(`${h}:0`);
-      }
-    }
-    fs.writeFileSync(hashFilePath, `${lines.join('\n')}\n`, 'ascii');
+    const { matches } = writeLargeSha1Corpus(hashFilePath, LARGE_CORPUS_BYTES, [5000]);
+    const matchHash = matches[0].hash;
 
     const lookupMap = new Map<string, PasswordObject[]>();
     lookupMap.set(matchHash, [{ login_password: 'bootstrapped' }]);
 
-    // Force the drive speed test on this small file so the run reaches the
-    // index-mode decision (preCheckSkipped=false); otherwise the small-file
-    // fast path would handle the scan before mode selection.
-    const savedThreshold = process.env.SPEED_TEST_MIN_BYTES;
-    process.env.SPEED_TEST_MIN_BYTES = '0';
-    try {
-      const idxPath = `${hashFilePath}.idx`;
-      expect(fs.existsSync(idxPath)).toBe(false);
+    const idxPath = `${hashFilePath}.idx`;
+    expect(fs.existsSync(idxPath)).toBe(false);
 
-      const firstLogs: string[] = [];
-      const first = await processSingleFile(
-        lookupMap,
-        hashFilePath,
-        'ascii',
-        (m) => firstLogs.push(m),
-        undefined,
-        undefined,
-        'index',
-        true,
-      );
-      expect(first).toHaveLength(1);
-      expect(first[0].passwordObjects[0].login_password).toBe('bootstrapped');
-      expect(firstLogs.some((l) => l.includes('No fresh .idx found'))).toBe(true);
-      expect(fs.existsSync(idxPath)).toBe(true);
+    const firstLogs: string[] = [];
+    const first = await processSingleFile(
+      lookupMap,
+      hashFilePath,
+      'ascii',
+      (m) => firstLogs.push(m),
+      undefined,
+      undefined,
+      'index',
+      true,
+    );
+    expect(first).toHaveLength(1);
+    expect(first[0].passwordObjects[0].login_password).toBe('bootstrapped');
+    expect(firstLogs.some((l) => l.includes('No fresh .idx found'))).toBe(true);
+    expect(fs.existsSync(idxPath)).toBe(true);
 
-      const idxBuf = fs.readFileSync(idxPath);
-      // eslint-disable-next-line no-bitwise
-      expect(idxBuf[0] & IDX_SORTED_FLAG_OK).toBe(IDX_SORTED_FLAG_OK);
-      const idxStat = fs.statSync(idxPath);
-      const hashStat = fs.statSync(hashFilePath);
-      expect(idxStat.mtimeMs).toBeGreaterThanOrEqual(hashStat.mtimeMs);
+    const idxBuf = fs.readFileSync(idxPath);
+    // eslint-disable-next-line no-bitwise
+    expect(idxBuf[0] & IDX_SORTED_FLAG_OK).toBe(IDX_SORTED_FLAG_OK);
+    const idxStat = fs.statSync(idxPath);
+    const hashStat = fs.statSync(hashFilePath);
+    expect(idxStat.mtimeMs).toBeGreaterThanOrEqual(hashStat.mtimeMs);
 
-      const secondLogs: string[] = [];
-      const second = await processSingleFile(
-        lookupMap,
-        hashFilePath,
-        'ascii',
-        (m) => secondLogs.push(m),
-        undefined,
-        undefined,
-        'index',
-        true,
-      );
-      expect(second).toHaveLength(1);
-      expect(second[0].passwordObjects[0].login_password).toBe('bootstrapped');
-      expect(secondLogs.some((l) => l.includes('Fresh .idx found'))).toBe(true);
-      expect(secondLogs.some((l) => l.includes('No fresh .idx found'))).toBe(false);
-    } finally {
-      if (savedThreshold === undefined) delete process.env.SPEED_TEST_MIN_BYTES;
-      else process.env.SPEED_TEST_MIN_BYTES = savedThreshold;
-    }
+    const secondLogs: string[] = [];
+    const second = await processSingleFile(
+      lookupMap,
+      hashFilePath,
+      'ascii',
+      (m) => secondLogs.push(m),
+      undefined,
+      undefined,
+      'index',
+      true,
+    );
+    expect(second).toHaveLength(1);
+    expect(second[0].passwordObjects[0].login_password).toBe('bootstrapped');
+    expect(secondLogs.some((l) => l.includes('Fresh .idx found'))).toBe(true);
+    expect(secondLogs.some((l) => l.includes('No fresh .idx found'))).toBe(false);
   });
 
   it('processes a hash file with multiple workers and returns matched results', { timeout: 60000 }, async () => {
@@ -258,38 +235,28 @@ describe('processSingleFile integration (real workers)', () => {
     expect(results[0].passwordObjects[0].login_password).toBe('password123');
   });
 
-  it('parallel sequential with buildIndex — .idx binary content verified', { timeout: 60000 }, async () => {
+  it('parallel sequential with buildIndex — .idx binary content verified', { timeout: 120000 }, async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-idx-verify-'));
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-idx-verify.txt');
-    const totalLines = 2000;
     const matchIndices = [
-      256,
-      600,
-      1200,
-      1600,
-      1999,
+      1000,
+      5000000,
+      12000000,
+      20000000,
+      26000000,
     ];
-    const matchHashes = matchIndices.map(
-      (i) => `${i.toString(16).toUpperCase().padStart(5, '0')}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`,
+    const { matches } = writeLargeSha1Corpus(
+      hashFilePath,
+      LARGE_CORPUS_BYTES,
+      matchIndices,
     );
-    const lines: string[] = [];
-    for (let i = 0; i < totalLines; i += 1) {
-      const h = `${i.toString(16).toUpperCase().padStart(5, '0')}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
-      lines.push(`${h}:0`);
-    }
-    matchHashes.forEach((h) => {
-      const idx = lines.findIndex((l) => l.startsWith(h));
-      if (idx >= 0) lines[idx] = `${h}:99`;
-    });
-    lines.sort((a, b) => a.localeCompare(b));
-    fs.writeFileSync(hashFilePath, `${lines.join('\n')}\n`, 'ascii');
     const fileSize = fs.statSync(hashFilePath).size;
 
     const pwMap = new Map<string, PasswordObject[]>();
-    matchHashes.forEach((h) => {
-      pwMap.set(h, [{ login_password: 'idx-verify-pw' }]);
+    matches.forEach(({ hash }) => {
+      pwMap.set(hash, [{ login_password: 'idx-verify-pw' }]);
     });
 
     const savedChunkCount = process.env.CHUNK_COUNT;
@@ -302,11 +269,11 @@ describe('processSingleFile integration (real workers)', () => {
         undefined,
         undefined,
         undefined,
-        'auto',
+        'sequential',
         true,
       );
 
-      expect(results).toHaveLength(matchHashes.length);
+      expect(results).toHaveLength(matches.length);
 
       const idxPath = `${hashFilePath}.idx`;
       expect(fs.existsSync(idxPath)).toBe(true);
@@ -319,18 +286,17 @@ describe('processSingleFile integration (real workers)', () => {
       const lastOffset = idxBuf.readBigUInt64LE(IDX_HEADER_SIZE + IDX_PREFIX_COUNT * 8);
       expect(lastOffset).toBe(BigInt(fileSize));
 
-      const firstPrefix = matchIndices[0];
-      const firstOffset = idxBuf.readBigUInt64LE(IDX_HEADER_SIZE + firstPrefix * 8);
-      expect(firstOffset).toBeGreaterThanOrEqual(0n);
-      expect(firstOffset).toBeLessThan(BigInt(fileSize));
-
-      const midPrefix = matchIndices[2];
-      const midOffset = idxBuf.readBigUInt64LE(IDX_HEADER_SIZE + midPrefix * 8);
-      expect(midOffset).toBeGreaterThanOrEqual(firstOffset);
-
-      const lastPrefix = matchIndices[4];
-      const lastPrefixOffset = idxBuf.readBigUInt64LE(IDX_HEADER_SIZE + lastPrefix * 8);
-      expect(lastPrefixOffset).toBeGreaterThanOrEqual(midOffset);
+      // Prefix buckets for the planted matches are distinct and ascending, so
+      // their recorded offsets must be too (all within file bounds).
+      let previousOffset = 0n;
+      matches.forEach(({ index, hash }) => {
+        const prefix = Math.floor(index / LARGE_CORPUS_LINES_PER_PREFIX);
+        expect(hash.slice(0, 5)).toBe(prefix.toString(16).toUpperCase().padStart(5, '0'));
+        const offset = idxBuf.readBigUInt64LE(IDX_HEADER_SIZE + prefix * 8);
+        expect(offset).toBeGreaterThanOrEqual(previousOffset);
+        expect(offset).toBeLessThan(BigInt(fileSize));
+        previousOffset = offset;
+      });
     } finally {
       if (savedChunkCount === undefined) delete process.env.CHUNK_COUNT;
       else process.env.CHUNK_COUNT = savedChunkCount;

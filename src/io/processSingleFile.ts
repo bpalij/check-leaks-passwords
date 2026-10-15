@@ -174,8 +174,11 @@ export async function processSingleFile(
 
   // Sortedness is resolved before any index-build decision: a .idx is only
   // usable for sorted files, so building one on unsorted input is pure waste
-  // (it would be deleted by the next run's cleanup).
-  const sorted = await detectSortednessAndCleanup(filePath, logger, fullHashLength);
+  // (it would be deleted by the next run's cleanup). `skipped` (corpus below
+  // 1 GiB) shares the unsorted fallback: `.idx` invalidated, sequential read
+  // only (FR-014).
+  const sortedness = await detectSortednessAndCleanup(filePath, logger, fullHashLength);
+  const sorted = sortedness === 'sorted';
 
   if (chunkCountOverride !== undefined) {
     return runSequential(buildIdx && sorted, sorted);
@@ -195,8 +198,16 @@ export async function processSingleFile(
 
   if (envMode) {
     logger?.(`Read mode overridden by READ_MODE_FORCED env: ${envMode}`);
-    if ((envMode === 'binary' || envMode === 'index' || envMode === 'sequential-index') && !sorted) {
-      throw new Error(`READ_MODE_FORCED=${envMode} requires a sorted file`);
+    if (envMode === 'binary' || envMode === 'index' || envMode === 'sequential-index') {
+      if (sortedness === 'skipped') {
+        throw new Error(
+          `READ_MODE_FORCED=${envMode} requires a sorted file, but sortedness is `
+          + 'not verified (file below 1 GiB)',
+        );
+      }
+      if (sortedness === 'unsorted') {
+        throw new Error(`READ_MODE_FORCED=${envMode} requires a sorted file`);
+      }
     }
     if (envMode === 'binary') {
       const ev = evaluateReadMode({

@@ -18,7 +18,7 @@ import { makeMap } from '../../tests/helpers/makeMap.js';
 const fixturesDir = FIXTURES_DIR;
 
 vi.mock('../hashing/detectSortedness.js', () => ({
-  detectSortedness: vi.fn().mockResolvedValue(true),
+  detectSortedness: vi.fn().mockResolvedValue('sorted'),
 }));
 
 vi.mock('../memory/getAvailableMemBytes', () => ({
@@ -172,7 +172,7 @@ describe('processSingleFile mode selection', () => {
   }
 
   beforeEach(() => {
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0.1,
@@ -335,7 +335,7 @@ describe('processSingleFile mode selection', () => {
 
   it('binary-noindex with unsorted file', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     const r = await processSingleFile(
       makeSingleHashMap(),
       fixturePath,
@@ -417,7 +417,7 @@ describe('processSingleFile mode selection', () => {
 
   it('index with unsorted file — sequential without index build', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     const r = await processSingleFile(
       makeSingleHashMap(),
       fixturePath,
@@ -434,7 +434,7 @@ describe('processSingleFile mode selection', () => {
 
   it('auto-index with unsorted file', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     const r = await processSingleFile(
       makeSingleHashMap(),
       fixturePath,
@@ -614,7 +614,7 @@ describe('processSingleFile mode selection', () => {
 
   it('sequential mode with unsorted file — runs sequential without building index', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     const r = await processSingleFile(
       makeSingleHashMap(),
       fixturePath,
@@ -648,7 +648,7 @@ describe('processSingleFile mode selection', () => {
 
   it('binary-index with unsorted file — falls back to sequential', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     const r = await processSingleFile(
       makeSingleHashMap(),
       fixturePath,
@@ -762,7 +762,7 @@ describe('processSingleFile mode selection', () => {
 
   it('chunkCountOverride with unsorted file — no index build', async () => {
     mockStatFresh();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     const r = await processSingleFile(
       makeSingleHashMap(),
       fixturePath,
@@ -803,7 +803,7 @@ describe('processSingleFile mode selection', () => {
 
   it('preCheckSkipped with unsorted file and buildIndex=true — no index build', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0,
@@ -935,7 +935,7 @@ describe('processSingleFile mode selection', () => {
     it('binary with unsorted file → throws', async () => {
       process.env.READ_MODE_FORCED = 'binary';
       mockStatNoIdx();
-      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
       await expect(
         processSingleFile(
           makeSingleHashMap(),
@@ -947,6 +947,23 @@ describe('processSingleFile mode selection', () => {
           'auto',
         ),
       ).rejects.toThrow('READ_MODE_FORCED=binary requires a sorted file');
+    });
+
+    it('binary with skipped verdict (file below 1 GiB) → throws a distinct refusal', async () => {
+      process.env.READ_MODE_FORCED = 'binary';
+      mockStatNoIdx();
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('skipped');
+      await expect(
+        processSingleFile(
+          makeSingleHashMap(),
+          fixturePath,
+          encoding,
+          undefined,
+          undefined,
+          undefined,
+          'auto',
+        ),
+      ).rejects.toThrow(/not verified \(file below 1 GiB\)/);
     });
 
     it('index with sorted file and fresh .idx → indexReader', async () => {
@@ -1012,7 +1029,7 @@ describe('processSingleFile mode selection', () => {
     it('sequential-index with unsorted file → throws', async () => {
       process.env.READ_MODE_FORCED = 'sequential-index';
       mockStatNoIdx();
-      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
       await expect(
         processSingleFile(
           makeSingleHashMap(),
@@ -1212,7 +1229,7 @@ describe('processSingleFile auto-index paths', () => {
     + ' via sortedness check (line 271-273)',
     async () => {
       mockStatNoIdx();
-      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(false);
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('unsorted');
       vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
         chunkCount: 1,
         seekTimeMs: 10,
@@ -1238,7 +1255,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('index mode with fresh .idx, index not beneficial, too many hashes for binary', async () => {
     mockStatFresh();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 10,
@@ -1273,7 +1290,7 @@ describe('processSingleFile auto-index paths', () => {
       }
       return { size: 10000, mtimeMs: Date.now(), isFile: () => true } as unknown as fs.Stats;
     });
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0.06,
@@ -1299,7 +1316,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('index mode with fresh .idx, index not beneficial, preCheckSkipped skips binary', async () => {
     mockStatFresh();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 10,
@@ -1328,7 +1345,7 @@ describe('processSingleFile auto-index paths', () => {
     + ' too many hashes for binary (line 397)',
     async () => {
       mockStatFresh();
-      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
       vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
         chunkCount: 1,
         seekTimeMs: 10,
@@ -1355,7 +1372,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('auto-index with fresh .idx, index not beneficial, preCheckSkipped (line 397)', async () => {
     mockStatFresh();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 10,
@@ -1381,7 +1398,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('auto-index without .idx, too many hashes for binary (line 416)', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 1,
@@ -1407,7 +1424,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('auto-noindex without .idx, too many hashes for binary (line 416)', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 1,
@@ -1432,7 +1449,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('auto-index without .idx, binary search beneficial (lines 404-414)', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0.01,
@@ -1458,7 +1475,7 @@ describe('processSingleFile auto-index paths', () => {
 
   it('auto-noindex without .idx, binary search beneficial (lines 404-414)', async () => {
     mockStatNoIdx();
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0.01,
@@ -1497,7 +1514,7 @@ describe('processSingleFile auto-index paths', () => {
           size: 10000, mtimeMs: Date.now(), isFile: () => true,
         } as unknown as fs.Stats;
       });
-      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
       vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
         chunkCount: 1,
         seekTimeMs: 0.06,
@@ -1533,7 +1550,7 @@ describe('processSingleFile auto-index paths', () => {
         isFile: () => true,
       } as unknown as fs.Stats;
     });
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 8,
@@ -1568,7 +1585,7 @@ describe('processSingleFile auto-index paths', () => {
         isFile: () => true,
       } as unknown as fs.Stats;
     });
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 8,
@@ -1607,7 +1624,7 @@ describe('processSingleFile auto-index paths', () => {
         isFile: () => true,
       } as unknown as fs.Stats;
     });
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0.001,
@@ -1635,7 +1652,7 @@ describe('processSingleFile auto-index paths', () => {
     + ' and falls through to auto-detection (line 464)',
     async () => {
       mockStatNoIdx();
-      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+      vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
       vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
         chunkCount: 1,
         seekTimeMs: 0.01,
@@ -1676,7 +1693,7 @@ describe('processSingleFile auto-index paths', () => {
         isFile: () => true,
       } as unknown as fs.Stats;
     });
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 10,
@@ -1712,7 +1729,7 @@ describe('processSingleFile auto-index paths', () => {
       }
       return { size: 10000, mtimeMs: Date.now(), isFile: () => true } as unknown as fs.Stats;
     });
-    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue(true);
+    vi.spyOn(detectSortednessModule, 'detectSortedness').mockResolvedValue('sorted');
     vi.spyOn(determineOptimalChunkCountModule, 'determineOptimalChunkCount').mockResolvedValue({
       chunkCount: 1,
       seekTimeMs: 0.1,

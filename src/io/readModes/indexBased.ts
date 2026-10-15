@@ -41,9 +41,11 @@ import { enrichWithPasswordObjects } from '../../enrichResults.js';
  * @param logger - Optional logging callback.
  * @param onProgress - Optional progress callback.
  * @param isHDD - Whether the drive is an HDD (limits concurrency).
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps — treat as sensitive.
  */
 export async function indexReader(
   filePath: string,
@@ -56,10 +58,15 @@ export async function indexReader(
   logger?: (message: string) => void,
   onProgress?: OnProgress,
   isHDD?: boolean,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
   const irStartInstant = Temporal.Now.instant();
   const speedTracker = createSpeedTracker();
-  const grouped = groupHashesByPrefix(hashesWithPasswordObjects, INDEX_PREFIX_LENGTH);
+  const grouped = groupHashesByPrefix(
+    hashesWithPasswordObjects,
+    INDEX_PREFIX_LENGTH,
+    fullHashLength,
+  );
 
   const ranges: Array<{
     start: bigint;
@@ -134,10 +141,11 @@ export async function indexReader(
 
     const { stats, results } = parseBuffer(
       buf,
-      SHA1_HEX_LENGTH,
+      fullHashLength,
       subMap,
       fingerprintSet,
       encoding,
+      { fullHashLength },
     );
 
     onProgress?.({

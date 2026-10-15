@@ -15,7 +15,7 @@ import { processChunk, type IndexRecorder } from './processChunk.js';
  */
 async function run() {
   const {
-    desc, filePath, serializedMap, serializedFingerprints, encoding, buildIndex,
+    desc, filePath, serializedMap, serializedFingerprints, encoding, buildIndex, fullHashLength,
   } = workerData as {
     desc: import('./processChunk.js').ChunkDescriptor;
     filePath: string;
@@ -23,6 +23,7 @@ async function run() {
     serializedFingerprints: Buffer | null;
     encoding: BufferEncoding;
     buildIndex?: boolean;
+    fullHashLength?: number;
   };
 
   const prefixBoundaries: Array<{ prefix: number; offset: number }> = [];
@@ -78,6 +79,8 @@ async function run() {
         accLeaks += leaks;
       },
       indexRecorder,
+      undefined,
+      fullHashLength,
     );
     clearInterval(flushTimer);
     flush();

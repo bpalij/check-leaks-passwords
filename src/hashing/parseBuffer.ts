@@ -1,6 +1,6 @@
 /* eslint-disable no-bitwise */
 import { HashLookupEntry } from '../types.js';
-import { IDX_PREFIX_COUNT } from '../constants.js';
+import { IDX_PREFIX_COUNT, SHA1_HEX_LENGTH } from '../constants.js';
 
 const NEWLINE = 0x0A;
 const CARRIAGE_RETURN = 0x0D;
@@ -17,6 +17,19 @@ const HEX_LOOKUP = new Uint8Array(128);
   for (let i = 0x30; i <= 0x39; i += 1) HEX_LOOKUP[i] = i - 0x30;
   for (let i = 0x41; i <= 0x46; i += 1) HEX_LOOKUP[i] = i - 0x41 + 10;
   for (let i = 0x61; i <= 0x66; i += 1) HEX_LOOKUP[i] = i - 0x61 + 10;
+})();
+
+/**
+ * Byte table mapping ASCII `a`-`z` to uppercase; all other bytes are identity.
+ *
+ * HIBP corpora and API responses may use upper- or lower-case hex, but lookup
+ * targets are always uppercase. Folding the corpus byte makes the fingerprint
+ * key and the byte-by-byte comparison case-insensitive (spec.md Mixed-case hex).
+ */
+const UPPER_LOOKUP = new Uint8Array(256);
+(() => {
+  for (let i = 0; i < 256; i += 1) UPPER_LOOKUP[i] = i;
+  for (let i = 0x61; i <= 0x7A; i += 1) UPPER_LOOKUP[i] = i - 0x20;
 })();
 
 /**
@@ -58,11 +71,15 @@ export interface ParseBufferResult {
  * @property recordBoundary - Callback to record prefix boundary offsets for index building.
  * @property bufferFileOffset - File offset of the buffer start (for index recording).
  * @property lastPrefix - Mutable state tracking the last recorded prefix (avoids duplicates).
+ * @property fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Required to compute the byte offset between a full hash and a corpus line that
+ *   contains only the suffix (split-directory/API). Defaults to 40 (SHA-1).
  */
 export interface ParseBufferOptions {
   recordBoundary?: (prefix: number, offset: number) => void;
   bufferFileOffset?: number;
   lastPrefix?: { value: number };
+  fullHashLength?: number;
 }
 
 /**
@@ -76,7 +93,8 @@ export interface ParseBufferOptions {
  * 2. Fifth nibble (fifthVal) for fingerprint filtering — reduces candidates.
  *
  * @param buffer - The buffer containing HIBP hash lines.
- * @param hashLength - Expected hash length (40 for file, 35 for API).
+ * @param hashLength - Number of hash characters before the separator (full-hash
+ *   length for single files, suffix length for split-directory/API).
  * @param hashLookupMap - Map from 4-byte key to candidate hash entries.
  * @param fingerprintSet - Optional set of first-4-byte keys for fast rejection.
  * @param encoding - Buffer encoding for hash string comparison.
@@ -101,7 +119,8 @@ export function parseBuffer(
   let rejectedLineCount = 0;
   let lineStart = 0;
   const len = buffer.length;
-  const skipBytes = 40 - hashLength;
+  const fullHashLength = options?.fullHashLength ?? SHA1_HEX_LENGTH;
+  const skipBytes = fullHashLength - hashLength;
   let lastKey1 = -1;
   let lastCandidates: HashLookupEntry[] | undefined;
   let lastFifthVal = -1;
@@ -122,9 +141,11 @@ export function parseBuffer(
 
     if (lineEnd - lineStart >= hashLength) {
       const off = lineStart;
-      // key1: first 4 bytes as a 32-bit integer for fast map lookup
-      const key1 = buffer[off] * 0x1000000 + buffer[off + 1] * 0x10000
-        + buffer[off + 2] * 0x100 + buffer[off + 3];
+      // key1: first 4 bytes as a 32-bit integer for fast map lookup.
+      // Corpus bytes are case-folded so lower-case hex still hits the
+      // uppercase lookup targets (fingerprint key must match too).
+      const key1 = UPPER_LOOKUP[buffer[off]] * 0x1000000 + UPPER_LOOKUP[buffer[off + 1]] * 0x10000
+        + UPPER_LOOKUP[buffer[off + 2]] * 0x100 + UPPER_LOOKUP[buffer[off + 3]];
       const fifthVal = HEX_LOOKUP[buffer[off + 4]];
 
       if (key1 !== lastKey1 || fifthVal !== lastFifthVal) {
@@ -156,8 +177,10 @@ export function parseBuffer(
           // Compare remaining bytes after the first 4 (already matched via key1).
           // Reverse scan: mismatches are more likely at the end (leak count suffix),
           // so starting from the tail avoids scanning the full hash on rejection.
+          // Case-fold the corpus byte so lower-case hex matches (target is uppercase).
           for (let k = hashLength - 1; k >= startK; k -= 1) {
-            if (target[skipBytes + k] !== buffer[off + k]) {
+            const targetByte = target[skipBytes + k];
+            if (targetByte !== buffer[off + k] && targetByte !== UPPER_LOOKUP[buffer[off + k]]) {
               match = false;
               break;
             }

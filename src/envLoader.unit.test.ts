@@ -243,4 +243,32 @@ describe('loadConfig', () => {
     expect(config.useHibpApi).toBe(true);
     expect(config.hashesOfLeaksPath).toBe('');
   });
+
+  it('defaults HASH_TYPE to auto and HASH_TYPE_MISMATCH to error', () => {
+    const config = loadConfig(makeEnv());
+    expect(config.hashType).toBe('auto');
+    expect(config.hashTypeMismatch).toBe('error');
+  });
+
+  it.each([
+    'auto',
+    'sha1',
+    'ntlm',
+  ])('accepts HASH_TYPE=%s', (value) => {
+    expect(loadConfig(makeEnv({ HASH_TYPE: value })).hashType).toBe(value);
+  });
+
+  it.each(['error', 'warn'])('accepts HASH_TYPE_MISMATCH=%s', (value) => {
+    expect(loadConfig(makeEnv({ HASH_TYPE_MISMATCH: value })).hashTypeMismatch).toBe(value);
+  });
+
+  it('rejects an invalid HASH_TYPE naming valid options', () => {
+    expect(() => loadConfig(makeEnv({ HASH_TYPE: 'md5' })))
+      .toThrow('HASH_TYPE="md5" is invalid. Valid: auto, sha1, ntlm');
+  });
+
+  it('rejects an invalid HASH_TYPE_MISMATCH naming valid options', () => {
+    expect(() => loadConfig(makeEnv({ HASH_TYPE_MISMATCH: 'ignore' })))
+      .toThrow('HASH_TYPE_MISMATCH="ignore" is invalid. Valid: error, warn');
+  });
 });

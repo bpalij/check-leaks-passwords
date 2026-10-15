@@ -426,6 +426,106 @@ describe('processHibpApi', () => {
   });
 });
 
+describe('processHibpApi NTLM mode', () => {
+  let originalFetch: typeof global.fetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('transmits only the 5-char prefix and matches 27-char NTLM suffixes locally', async () => {
+    // NTLM("password") = MD4(UTF-16LE("password"))
+    const fullHash = '8846F7EAEE8FB117AD06BDD830B7586C';
+    const ntlmSuffix = fullHash.slice(5);
+    expect(ntlmSuffix).toHaveLength(27);
+
+    const hashesMap = new Map<string, PasswordObject[]>();
+    hashesMap.set(fullHash, [{ login_password: 'password' }]);
+
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      requestedUrls.push(url);
+      return {
+        ok: true,
+        headers: { get: (name: string) => (name === 'cf-cache-status' ? 'HIT' : null) },
+        arrayBuffer: () => Promise.resolve(Buffer.from(`${ntlmSuffix}:123\n`, 'ascii')),
+      };
+    });
+    global.fetch = fetchMock as unknown as typeof global.fetch;
+
+    const results = await processHibpApi(
+      hashesMap,
+      TEST_API_URL,
+      undefined,
+      undefined,
+      undefined,
+      32,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe(fullHash);
+    expect(results[0].leaks).toBe(123);
+
+    // Only the 5-character prefix leaves the machine.
+    expect(requestedUrls).toHaveLength(1);
+    const transmittedPrefix = requestedUrls[0].split('/').pop();
+    expect(transmittedPrefix).toBe('8846F');
+    expect(transmittedPrefix).toHaveLength(5);
+  });
+
+  it('does not match a SHA-1 length (35-char) suffix when running NTLM', async () => {
+    const fullHash = '8846F7EAEE8FB117AD06BDD830B7586C';
+    const hashesMap = new Map<string, PasswordObject[]>();
+    hashesMap.set(fullHash, [{ login_password: 'password' }]);
+
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      headers: { get: (name: string) => (name === 'cf-cache-status' ? 'HIT' : null) },
+      // A 35-char suffix must not be treated as a 27-char NTLM suffix match.
+      arrayBuffer: () => Promise.resolve(Buffer.from(`${'A'.repeat(35)}:999\n`, 'ascii')),
+    }));
+    global.fetch = fetchMock as unknown as typeof global.fetch;
+
+    const results = await processHibpApi(
+      hashesMap,
+      TEST_API_URL,
+      undefined,
+      undefined,
+      undefined,
+      32,
+    );
+    expect(results).toHaveLength(0);
+  });
+
+  it('matches NTLM suffixes case-insensitively (lower-case corpus hex)', async () => {
+    const fullHash = 'BECEDB42EC3C5C7F965255338BE4453C';
+    const hashesMap = new Map<string, PasswordObject[]>();
+    hashesMap.set(fullHash, [{ login_password: 'letmein' }]);
+
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      headers: { get: (name: string) => (name === 'cf-cache-status' ? 'MISS' : null) },
+      arrayBuffer: () => Promise.resolve(Buffer.from(`${fullHash.slice(5).toLowerCase()}:77\n`, 'ascii')),
+    }));
+    global.fetch = fetchMock as unknown as typeof global.fetch;
+
+    const results = await processHibpApi(
+      hashesMap,
+      TEST_API_URL,
+      undefined,
+      undefined,
+      undefined,
+      32,
+    );
+    expect(results).toHaveLength(1);
+    expect(results[0].leaks).toBe(77);
+  });
+});
+
 describe('processHibpApi invariant guard', () => {
   it('throws when prefix not found in suffix map', async () => {
     vi.stubGlobal('fetch', vi.fn());

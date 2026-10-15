@@ -53,6 +53,12 @@ export const MEMORY_HEADROOM = 1.5;
 /** Length of a SHA-1 hex string (40 characters). */
 export const SHA1_HEX_LENGTH = 40;
 
+/** Length of an NTLM (MD4) hex string (32 characters = 16 bytes). */
+export const NTLM_HEX_LENGTH = 32;
+
+/** Length of the NTLM hash suffix returned by the HIBP API (27 chars = 32 - 5 prefix). */
+export const NTLM_API_HASH_SUFFIX_LENGTH = 27;
+
 /**
  * Sequential read speed threshold for HDD vs SSD classification (300 MB/s).
  *
@@ -72,11 +78,34 @@ export const IDX_PREFIX_BITS = INDEX_PREFIX_LENGTH * 4;
 /** Number of distinct prefixes in the index (16^5 = 1,048,576). */
 export const IDX_PREFIX_COUNT = 16 ** INDEX_PREFIX_LENGTH;
 
-/** Size of the `.idx` file header in bytes (1 flag + 8 mtime). */
-export const IDX_HEADER_SIZE = 9;
+/** Size of the `.idx` file header in bytes (see `IDX_HEADER_SIZE_V2`). */
+export const IDX_HEADER_SIZE = 19;
 
 /** Flag byte indicating the file is sorted (stored in `.idx` header). */
 export const IDX_SORTED_FLAG_OK = 0x01;
+
+/** Legacy `.idx` header size in bytes (1 sorted flag + 8 mtime). */
+export const IDX_HEADER_SIZE_LEGACY = 9;
+
+/**
+ * `.idx` header size in bytes for the v2 layout.
+ *
+ * Layout: byte 0 sorted flag, byte 1 version marker, byte 2 hash type,
+ * bytes 3-10 mtime (BigInt64LE), bytes 11-18 file size (BigUInt64LE).
+ */
+export const IDX_HEADER_SIZE_V2 = 19;
+
+/** Version marker stored at byte 1 of a v2 `.idx` header. */
+export const IDX_VERSION_V2 = 0x02;
+
+/** Hash-type code for a legacy/unknown `.idx` header. */
+export const IDX_HASH_TYPE_UNKNOWN = 0;
+
+/** Hash-type code for a SHA-1 indexed corpus. */
+export const IDX_HASH_TYPE_SHA1 = 1;
+
+/** Hash-type code for an NTLM indexed corpus. */
+export const IDX_HASH_TYPE_NTLM = 2;
 
 // Max valid HIBP line: SHA1_HEX(40) + ':'(1) + count(~10) + '\n'(1) = ~52 bytes
 /** Maximum allowed line length in bytes (256 — generous margin over ~52 typical). */
@@ -89,8 +118,8 @@ export const AVG_HIBP_LINE_LENGTH = 45;
 /** Bytes to read per binary search probe (256 — covers one HIBP line with margin). */
 export const BINARY_SEARCH_READ_SIZE = 256;
 
-// HIBP API response hash length (SHA-1 hex = 40 chars, but API returns 35-char prefix+suffix)
-/** Length of the hash prefix returned by the HIBP API (35 chars: 5 prefix + 30 suffix). */
+// HIBP API / split-file SHA-1 suffix length (40-char SHA-1 hash minus the 5-char prefix)
+/** Length of the SHA-1 hash suffix returned by the HIBP API / stored in split files (35 chars). */
 export const HIBP_API_HASH_LENGTH = 35;
 
 // Sortedness check
@@ -113,3 +142,23 @@ export const HDD_BINARY_MULTIPLIER = 3.0;
 
 /** Estimated JavaScript overhead per binary search read (0.05ms). */
 export const BINARY_JS_OVERHEAD_MS = 0.05;
+
+/**
+ * Resolve the full hex length for an effective hash type.
+ *
+ * @param type - The effective hash type (`sha1` or `ntlm`).
+ * @returns 40 for sha1, 32 for ntlm.
+ */
+export function fullHashLengthFor(type: 'sha1' | 'ntlm'): number {
+  return type === 'ntlm' ? NTLM_HEX_LENGTH : SHA1_HEX_LENGTH;
+}
+
+/**
+ * Resolve the HIBP API / split-file suffix hex length for an effective hash type.
+ *
+ * @param type - The effective hash type (`sha1` or `ntlm`).
+ * @returns 35 for sha1, 27 for ntlm.
+ */
+export function apiSuffixLengthFor(type: 'sha1' | 'ntlm'): number {
+  return type === 'ntlm' ? NTLM_API_HASH_SUFFIX_LENGTH : HIBP_API_HASH_LENGTH;
+}

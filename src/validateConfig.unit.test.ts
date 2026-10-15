@@ -145,6 +145,25 @@ describe('validateConfig', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('passes with a valid hashType and hashTypeMismatch', async () => {
+    await expect(validateConfig({ ...validConfig, hashType: 'ntlm', hashTypeMismatch: 'warn' }))
+      .resolves.toBeUndefined();
+  });
+
+  it('passes when hashType and hashTypeMismatch are omitted (defaults apply)', async () => {
+    await expect(validateConfig(validConfig)).resolves.toBeUndefined();
+  });
+
+  it('throws for an invalid hashType naming valid options', async () => {
+    await expect(validateConfig({ ...validConfig, hashType: 'md5' as 'auto' }))
+      .rejects.toThrow('hashType must be one of: auto, sha1, ntlm');
+  });
+
+  it('throws for an invalid hashTypeMismatch naming valid options', async () => {
+    await expect(validateConfig({ ...validConfig, hashTypeMismatch: 'ignore' as 'error' }))
+      .rejects.toThrow('hashTypeMismatch must be one of: error, warn');
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

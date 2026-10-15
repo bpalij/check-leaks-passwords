@@ -10,7 +10,7 @@ import type {
   HashWithLeaksAndPasswordObjects,
   OnProgress,
 } from '../types.js';
-import { HASH_PREFIX_LENGTH, MAX_SPLIT_FILE_CONCURRENCY, HIBP_API_HASH_LENGTH } from '../constants.js';
+import { HASH_PREFIX_LENGTH, MAX_SPLIT_FILE_CONCURRENCY, SHA1_HEX_LENGTH } from '../constants.js';
 import { measureSequentialSpeedFromDir } from '../memory/detectHDD.js';
 import { parseBuffer, type ParseBufferResult } from '../hashing/parseBuffer.js';
 import { promisePool } from './promisePool.js';
@@ -38,9 +38,12 @@ import { enrichWithPasswordObjects } from '../enrichResults.js';
  * @param encoding - Buffer encoding for hash comparison.
  * @param logger - Optional logging callback.
  * @param onProgress - Optional progress callback.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   The file suffix length is derived as `fullHashLength - HASH_PREFIX_LENGTH`
+ *   (35 for SHA-1, 27 for NTLM). Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps derived from passwords — treat as sensitive.
  */
 export async function processSplitDirectory(
   hashesWithPasswordObjects: Map<string, Array<PasswordObject>>,
@@ -48,12 +51,18 @@ export async function processSplitDirectory(
   encoding: BufferEncoding,
   logger?: (message: string) => void,
   onProgress?: OnProgress,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
+  const suffixLength = fullHashLength - HASH_PREFIX_LENGTH;
   let prefixSpinner: Ora | undefined;
   if (logger) {
     prefixSpinner = createSpinner('Generating prefix groups and fingerprints...').start();
   }
-  const prefixToSuffix = groupHashesByPrefix(hashesWithPasswordObjects, HASH_PREFIX_LENGTH);
+  const prefixToSuffix = groupHashesByPrefix(
+    hashesWithPasswordObjects,
+    HASH_PREFIX_LENGTH,
+    fullHashLength,
+  );
   prefixSpinner?.succeed('Generating prefix groups and fingerprints');
 
   const matchingPrefixes = Array.from(prefixToSuffix.keys());
@@ -125,10 +134,11 @@ export async function processSplitDirectory(
         const fileContent = await fs.promises.readFile(prefixFilePath);
         const parsed = parseBuffer(
           fileContent,
-          HIBP_API_HASH_LENGTH,
+          suffixLength,
           suffixLookupMap,
           suffixFpSet,
           encoding,
+          { fullHashLength },
         );
         stats = parsed.stats;
         fileResults = parsed.results;

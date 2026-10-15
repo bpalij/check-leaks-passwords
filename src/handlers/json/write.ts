@@ -12,6 +12,7 @@ const JSON_KEY_ORDER_NESTED = [
   'typeLabel',
   'login',
   'login_password_hash',
+  'login_password_hash_type',
   'login_password_leaks',
   'login_password_readable_leaks',
   'login_password_compact_leaks',
@@ -47,6 +48,7 @@ const JSON_KEY_ORDER_FLAT = [
   'login_password',
   'login_totp',
   'login_password_hash',
+  'login_password_hash_type',
   'login_password_leaks',
   'login_password_readable_leaks',
   'login_password_compact_leaks',
@@ -148,6 +150,7 @@ export const writeJsonOutputFile = async (
   options: OutputHandlerOptions = {},
 ): Promise<void> => {
   const includeSecrets = options.includeSecrets ?? false;
+  const hashType = options.hashType ?? 'sha1';
 
   const outputData = data.map((group) => ({
     ...group,
@@ -156,6 +159,7 @@ export const writeJsonOutputFile = async (
         const withLeaks = {
           ...obj,
           login_password_hash: group.hash,
+          login_password_hash_type: hashType,
           login_password_leaks: group.leaks,
           login_password_readable_leaks: formatNumber(group.leaks),
           login_password_compact_leaks: formatCompact(group.leaks),

@@ -11,7 +11,7 @@ import type {
   HashWithLeaksAndPasswordObjects,
   OnProgress,
 } from '../types.js';
-import { HASH_PREFIX_LENGTH, MAX_HIBP_CONCURRENCY, HIBP_API_HASH_LENGTH } from '../constants.js';
+import { HASH_PREFIX_LENGTH, MAX_HIBP_CONCURRENCY, SHA1_HEX_LENGTH } from '../constants.js';
 import { groupHashesByPrefix } from '../hashing/groupByPrefix.js';
 import { parseBuffer } from '../hashing/parseBuffer.js';
 import { promisePool } from './promisePool.js';
@@ -87,9 +87,14 @@ export function logHibpApiSummary(
  * @param logger - Optional logging callback.
  * @param onProgress - Optional progress callback.
  * @param onRetry - Optional callback for retry notifications.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Only the 5-character prefix is transmitted; the API suffix length is derived
+ *   as `fullHashLength - HASH_PREFIX_LENGTH` (35 for SHA-1, 27 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps derived from passwords — treat as sensitive.
+ * Only the 5-character prefix is ever sent externally.
  */
 export async function processHibpApi(
   hashesWithPasswordObjects: Map<string, Array<PasswordObject>>,
@@ -97,12 +102,18 @@ export async function processHibpApi(
   logger?: (message: string) => void,
   onProgress?: OnProgress,
   onRetry?: (message: string) => void,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
+  const apiSuffixLength = fullHashLength - HASH_PREFIX_LENGTH;
   let prefixSpinner: Ora | undefined;
   if (logger) {
     prefixSpinner = createSpinner('Generating prefix groups and fingerprints...').start();
   }
-  const prefixToSuffix = groupHashesByPrefix(hashesWithPasswordObjects, HASH_PREFIX_LENGTH);
+  const prefixToSuffix = groupHashesByPrefix(
+    hashesWithPasswordObjects,
+    HASH_PREFIX_LENGTH,
+    fullHashLength,
+  );
   prefixSpinner?.succeed('Generating prefix groups and fingerprints');
   const matchingPrefixes = Array.from(prefixToSuffix.keys());
   const totalPrefixes = matchingPrefixes.length;
@@ -215,7 +226,14 @@ export async function processHibpApi(
 
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    const { stats, results: fileResults } = parseBuffer(buffer, HIBP_API_HASH_LENGTH, suffixLookupMap, suffixFpSet, 'ascii');
+    const { stats, results: fileResults } = parseBuffer(
+      buffer,
+      apiSuffixLength,
+      suffixLookupMap,
+      suffixFpSet,
+      'ascii',
+      { fullHashLength },
+    );
 
     return {
       matchedHashCount: stats.matchedHashCount,

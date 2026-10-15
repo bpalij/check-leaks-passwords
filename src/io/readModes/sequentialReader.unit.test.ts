@@ -114,7 +114,9 @@ describe('sequentialReader coverage gaps', () => {
     expect(writtenBuf[0]).toBe(IDX_SORTED_FLAG_OK);
 
     const expectedMtime = Math.floor(1234567890 / 1000);
-    expect(writtenBuf.readBigInt64LE(1)).toBe(BigInt(expectedMtime));
+    // v2 header layout: byte 0 sorted flag, byte 1 version, byte 2 hash type,
+    // bytes 3-10 mtime (BigInt64LE), bytes 11-18 file size.
+    expect(writtenBuf.readBigInt64LE(3)).toBe(BigInt(expectedMtime));
   });
 
   it('sets sorted flag to 0 in .idx when sorted=false (line 246)', async () => {

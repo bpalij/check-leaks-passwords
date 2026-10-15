@@ -18,9 +18,10 @@ import { sequentialReader } from './readModes/sequential.js';
 import { binarySearchReader } from './readModes/binarySearch.js';
 import { indexReader } from './readModes/indexBased.js';
 import { processChunk, type ChunkDescriptor, type ChunkResult } from './processChunk.js';
-import { MAX_CHUNKS } from '../constants.js';
+import { MAX_CHUNKS, SHA1_HEX_LENGTH } from '../constants.js';
 import { parseEnvInt } from '../memory/parseEnvInt.js';
 import { evaluateReadMode } from './readModeEvaluator.js';
+import { hashTypeCodeFor } from './indexHeader.js';
 import {
   validateForcedMode,
   resolveMode,
@@ -63,10 +64,12 @@ const FINGERPRINT_DENSITY_THRESHOLD = 0.25;
  * @param onProgress - Optional progress callback.
  * @param singleFileReadMode - Read mode preference.
  * @param buildIndex - Whether to build a `.idx` file during processing.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  * @throws {Error} If the read mode is invalid or incompatible with file state.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps derived from passwords — treat as sensitive.
  */
 export async function processSingleFile(
   hashesWithPasswordObjects: Map<string, Array<PasswordObject>>,
@@ -77,6 +80,7 @@ export async function processSingleFile(
   onProgress?: OnProgress,
   singleFileReadMode?: SingleFileReadMode,
   buildIndex?: boolean,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
   const stat = await fs.promises.stat(filePath);
   const fileSize = stat.size;
@@ -87,7 +91,10 @@ export async function processSingleFile(
   if (logger) {
     fingerprintSpinner = createSpinner('Building fingerprint index...').start();
   }
-  const { map: hashLookupMap, set: fingerprintSet } = buildHashLookupMap(hashesWithPasswordObjects);
+  const { map: hashLookupMap, set: fingerprintSet } = buildHashLookupMap(
+    hashesWithPasswordObjects,
+    fullHashLength,
+  );
 
   const serializedMap = v8.serialize(hashLookupMap);
   const mapCloneBytes = serializedMap.length;
@@ -159,6 +166,7 @@ export async function processSingleFile(
     buildIdx,
     sorted,
     isHDDDetected ? 2 : undefined,
+    fullHashLength,
   );
 
   const envMode = validateForcedMode(process.env.READ_MODE_FORCED);
@@ -167,7 +175,7 @@ export async function processSingleFile(
   // Sortedness is resolved before any index-build decision: a .idx is only
   // usable for sorted files, so building one on unsorted input is pure waste
   // (it would be deleted by the next run's cleanup).
-  const sorted = await detectSortednessAndCleanup(filePath, logger);
+  const sorted = await detectSortednessAndCleanup(filePath, logger, fullHashLength);
 
   if (chunkCountOverride !== undefined) {
     return runSequential(buildIdx && sorted, sorted);
@@ -211,6 +219,7 @@ export async function processSingleFile(
         hashesWithPasswordObjects,
         logger,
         onProgress,
+        fullHashLength,
       );
     }
     if (envMode === 'index') {
@@ -220,7 +229,10 @@ export async function processSingleFile(
       if (idxStat.mtimeMs <= stat.mtimeMs) {
         throw new Error('READ_MODE_FORCED=index requires a fresh .idx file. Rebuild with auto-index.');
       }
-      const idx = await loadIndex(idxPath);
+      const idx = await loadIndex(idxPath, {
+        hashType: hashTypeCodeFor(fullHashLength),
+        fileSize,
+      });
       const uniquePrefixes = new Set<number>();
       hashesWithPasswordObjects.forEach((_v, hash) => {
         uniquePrefixes.add(parseInt(hash.slice(0, 5), 16));
@@ -247,6 +259,7 @@ export async function processSingleFile(
         logger,
         onProgress,
         isHDDDetected,
+        fullHashLength,
       );
     }
     if (envMode === 'sequential-noindex') {
@@ -302,7 +315,13 @@ export async function processSingleFile(
   let hasFreshIdx = false;
 
   if (effectiveMode === 'index' || effectiveMode === 'auto') {
-    const indexData = await tryLoadIndex(filePath, stat.mtimeMs, hashesWithPasswordObjects, logger);
+    const indexData = await tryLoadIndex(
+      filePath,
+      stat.mtimeMs,
+      hashesWithPasswordObjects,
+      logger,
+      { fullHashLength, fileSize },
+    );
     if (indexData) {
       idx = indexData.idx;
       uniquePrefixCount = indexData.uniquePrefixCount;
@@ -349,6 +368,7 @@ export async function processSingleFile(
     isHDD: isHDDDetected,
     buildIdx,
     sorted,
+    fullHashLength,
     runSequential,
   });
 }

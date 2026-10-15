@@ -8,7 +8,9 @@ import {
 
 import type { PasswordObject } from '../types.js';
 import { processSingleFile } from './processSingleFile.js';
-import { IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_SORTED_FLAG_OK } from '../constants.js';
+import {
+  IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_SORTED_FLAG_OK, NTLM_HEX_LENGTH,
+} from '../constants.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
 
@@ -551,5 +553,46 @@ describe('processSingleFile integration (fixture files)', () => {
       try { fs.unlinkSync(tempFile); } catch { /* ignore */ }
       try { fs.rmdirSync(tempDir); } catch { /* ignore */ }
     }
+  });
+});
+
+describe('processSingleFile NTLM single-file (real workers)', () => {
+  const ntlmCorpus = path.join(fixturesDir, 'ntlm-hashes.txt');
+
+  function ntlmMap(): Map<string, PasswordObject[]> {
+    const map = new Map<string, PasswordObject[]>();
+    map.set('8846F7EAEE8FB117AD06BDD830B7586C', [{ login_password: 'password' }]);
+    map.set('32ED87BDB5FDC5E9CBA88547376818D4', [{ login_password: '123456' }]);
+    map.set('BECEDB42EC3C5C7F965255338BE4453C', [{ login_password: 'letmein' }]);
+    map.set('00000000000000000000000000000000', [{ login_password: 'not-leaked' }]);
+    return map;
+  }
+
+  it('reports every planted NTLM password with the correct count', { timeout: 60000 }, async () => {
+    const results = await processSingleFile(
+      ntlmMap(),
+      ntlmCorpus,
+      'ascii',
+      undefined,
+      undefined,
+      undefined,
+      'auto',
+      false,
+      NTLM_HEX_LENGTH,
+    );
+
+    const byHash = new Map(results.map((r) => [r.hash, r]));
+    expect(byHash.get('8846F7EAEE8FB117AD06BDD830B7586C')?.leaks).toBe(99999);
+    expect(byHash.get('32ED87BDB5FDC5E9CBA88547376818D4')?.leaks).toBe(37281043);
+    expect(byHash.get('BECEDB42EC3C5C7F965255338BE4453C')?.leaks).toBe(250000);
+    expect(byHash.has('00000000000000000000000000000000')).toBe(false);
+  });
+
+  it('does not match SHA-1 hashes of the same passwords in NTLM mode', { timeout: 60000 }, async () => {
+    const map = new Map<string, PasswordObject[]>();
+    // SHA-1 of "password123" is present in the SHA-1 fixture, not the NTLM one.
+    map.set('E38AD214943DAAD1D64C102FAEC29DE4AFE9DA3D', [{ login_password: 'password123' }]);
+    const results = await processSingleFile(map, ntlmCorpus, 'ascii', undefined, undefined, undefined, 'auto', false, NTLM_HEX_LENGTH);
+    expect(results).toHaveLength(0);
   });
 });

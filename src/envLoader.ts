@@ -1,5 +1,5 @@
 import type {
-  ConfigInterface, OutputConfig, SingleFileReadMode,
+  ConfigInterface, HashType, HashTypeMismatchMode, OutputConfig, SingleFileReadMode,
 } from './types.js';
 import { ENV_DEFAULTS } from './envDefaults.js';
 
@@ -10,6 +10,12 @@ const VALID_READ_MODES: readonly SingleFileReadMode[] = [
   'binary',
   'index',
 ];
+const VALID_HASH_TYPES: readonly HashType[] = [
+  'auto',
+  'sha1',
+  'ntlm',
+];
+const VALID_HASH_TYPE_MISMATCH_MODES: readonly HashTypeMismatchMode[] = ['error', 'warn'];
 
 /**
  * Write a warning message to stderr.
@@ -153,6 +159,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigInterfac
     'SINGLE_FILE_READ_MODE',
   );
 
+  const hashType = parseEnum(
+    env.HASH_TYPE,
+    VALID_HASH_TYPES,
+    ENV_DEFAULTS.HASH_TYPE,
+    'HASH_TYPE',
+  );
+  const hashTypeMismatch = parseEnum(
+    env.HASH_TYPE_MISMATCH,
+    VALID_HASH_TYPE_MISMATCH_MODES,
+    ENV_DEFAULTS.HASH_TYPE_MISMATCH,
+    'HASH_TYPE_MISMATCH',
+  );
+
   const buildIndex = parseBoolean(env.BUILD_INDEX, ENV_DEFAULTS.BUILD_INDEX, 'BUILD_INDEX');
   const includeSecrets = parseBoolean(env.INCLUDE_SECRETS, ENV_DEFAULTS.INCLUDE_SECRETS, 'INCLUDE_SECRETS');
 
@@ -164,6 +183,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConfigInterfac
     hashesOfLeaksPath,
     outputs,
     useHibpApi,
+    hashType,
+    hashTypeMismatch,
     singleFileReadMode,
     buildIndex,
     includeSecrets,

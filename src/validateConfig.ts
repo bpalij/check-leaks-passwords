@@ -58,6 +58,23 @@ export async function validateConfig(config: Readonly<ConfigInterface>): Promise
     throw new Error(`singleFileReadMode must be one of: ${validModes.join(', ')}`);
   }
 
+  const validHashTypes = [
+    'auto',
+    'sha1',
+    'ntlm',
+  ];
+  if (config.hashType !== undefined && !validHashTypes.includes(config.hashType)) {
+    throw new Error(`hashType must be one of: ${validHashTypes.join(', ')}`);
+  }
+
+  const validHashMismatchModes = ['error', 'warn'];
+  if (
+    config.hashTypeMismatch !== undefined
+    && !validHashMismatchModes.includes(config.hashTypeMismatch)
+  ) {
+    throw new Error(`hashTypeMismatch must be one of: ${validHashMismatchModes.join(', ')}`);
+  }
+
   if (typeof config.buildIndex !== 'boolean') {
     throw new Error('buildIndex must be a boolean');
   }

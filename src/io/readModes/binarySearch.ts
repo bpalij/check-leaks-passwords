@@ -98,9 +98,11 @@ function parseLeaks(buf: Buffer, start: number, end: number): number {
  * @param hashesWithPasswordObjects - Map from SHA-1 hex hash to password objects.
  * @param logger - Optional logging callback.
  * @param onProgress - Optional progress callback.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps — treat as sensitive.
  */
 export async function binarySearchReader(
   filePath: string,
@@ -111,6 +113,7 @@ export async function binarySearchReader(
   hashesWithPasswordObjects: Map<string, Array<PasswordObject>>,
   logger?: (message: string) => void,
   onProgress?: OnProgress,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
   const bsStartInstant = Temporal.Now.instant();
   const speedTracker = createSpeedTracker();
@@ -214,7 +217,7 @@ export async function binarySearchReader(
     groupReadPos: number,
   ) => {
     const offset = readPos - groupReadPos;
-    if (trimmed.length - offset < SHA1_HEX_LENGTH) {
+    if (trimmed.length - offset < fullHashLength) {
       state.high = mid;
       return;
     }
@@ -234,7 +237,7 @@ export async function binarySearchReader(
     if (
       trimmed[lineStart] === NEWLINE
       || trimmed[lineStart] === CARRIAGE_RETURN
-      || trimmed.length - lineStart < SHA1_HEX_LENGTH
+      || trimmed.length - lineStart < fullHashLength
     ) {
       state.low = mid + 1;
       return;
@@ -246,7 +249,7 @@ export async function binarySearchReader(
       return;
     }
 
-    const sub = trimmed.subarray(lineStart, lineStart + SHA1_HEX_LENGTH);
+    const sub = trimmed.subarray(lineStart, lineStart + fullHashLength);
     const cmp = Buffer.compare(sub, state.targetBytes);
 
     if (cmp === 0) {

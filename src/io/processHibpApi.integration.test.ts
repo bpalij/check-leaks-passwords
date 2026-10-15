@@ -1,4 +1,6 @@
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 
 import {
   describe,
@@ -11,6 +13,17 @@ import { processHibpApi } from './processHibpApi.js';
 import { convertArrayToMap } from '../hashing/convertArrayToMap.js';
 import type { PasswordObjectWithHash } from '../types.js';
 import { sha1 } from '../../tests/helpers/sha1.js';
+import { ntlm } from '../../tests/helpers/ntlm.js';
+import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
+
+/** NTLM reference password → hash pairs from quickstart.md. */
+const NTLM_VECTORS: Array<[string, string]> = [
+  ['password', '8846F7EAEE8FB117AD06BDD830B7586C'],
+  ['00000000', '9BDC61DB5A3FCED6D82D49279F1F0430'],
+  ['123456', '32ED87BDB5FDC5E9CBA88547376818D4'],
+  ['letmein', 'BECEDB42EC3C5C7F965255338BE4453C'],
+  ['password123', 'A9FDFA038C4B75EBC76DC855DD74F0DA'],
+];
 
 function createMockHibpServer(
   hashToCount: Map<string, number>,
@@ -161,5 +174,58 @@ describe('processHibpApi — integration with real HTTP', () => {
 
     expect(logs.some((l) => l.includes('Cloudflare cache'))).toBe(true);
     expect(logs.some((l) => l.includes('miss: 1'))).toBe(true);
+  });
+});
+
+describe('processHibpApi — NTLM mode integration with real HTTP', () => {
+  let server: { url: string; close: () => Promise<void> } | undefined;
+
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+  });
+
+  it('reports NTLM leak counts matching the local NTLM corpus fixture (SC-003)', async () => {
+    // Build the expected counts from the local NTLM corpus fixture.
+    const corpusLines = fs.readFileSync(
+      path.join(FIXTURES_DIR, 'ntlm-hashes.txt'),
+      'utf-8',
+    ).trim().split('\n');
+    const fullHashToCount = new Map<string, number>();
+    corpusLines.forEach((line) => {
+      const [fullHash, count] = line.split(':');
+      fullHashToCount.set(fullHash, Number(count));
+    });
+
+    server = await createMockHibpServer(fullHashToCount);
+
+    const breached = NTLM_VECTORS.filter(([, hash]) => fullHashToCount.has(hash));
+    const safePassword = 'notleaked-unique-password';
+
+    const input: Array<PasswordObjectWithHash> = breached.map(
+      ([pw, hash]) => ({ hash, passwordObject: { login_password: pw } }),
+    );
+    input.push({
+      hash: ntlm(safePassword),
+      passwordObject: { login_password: safePassword },
+    });
+    const hashesMap = convertArrayToMap(input);
+
+    const results = await processHibpApi(
+      hashesMap,
+      server.url,
+      undefined,
+      undefined,
+      undefined,
+      32,
+    );
+
+    expect(results).toHaveLength(breached.length);
+    const byHash = new Map(results.map((r) => [r.hash, r.leaks]));
+    breached.forEach(([, hash]) => {
+      expect(byHash.get(hash)).toBe(fullHashToCount.get(hash));
+    });
+    // The safe password produces no match.
+    expect(byHash.has(ntlm(safePassword))).toBe(false);
   });
 });

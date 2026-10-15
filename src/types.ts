@@ -100,8 +100,8 @@ export interface HashWithPasswordObjects {
 /**
  * A hash lookup entry containing the full hash string and its byte representation.
  *
- * `fullHashBytes` is pre-allocated as a 40-byte Buffer for fast comparison
- * in the hot path (parseBuffer).
+ * `fullHashBytes` holds the first `fullHashLength` bytes of the hash (40 for
+ * SHA-1, 32 for NTLM) for fast comparison in the hot path (parseBuffer).
  */
 export interface HashLookupEntry {
   fullHash: string;
@@ -148,10 +148,14 @@ export type OnProgress = (update: ProgressUpdate) => void;
  *
  * @property includeSecrets - When true, plaintext passwords and TOTP secrets
  *   are included in the output. ⚠️ INSECURE — secrets written to disk.
+ * @property hashType - Effective hash type for the run, written per record as
+ *   `login_password_hash_type`. Defaults to `sha1` when omitted.
  */
 export type OutputHandlerOptions = {
   /** Whether to include plaintext secrets in the output. Defaults to false. */
   includeSecrets?: boolean;
+  /** Effective hash type actually used for matching (reflects self-correction). */
+  hashType?: 'sha1' | 'ntlm';
 };
 
 /**
@@ -178,6 +182,52 @@ export type ForcedReadMode = | 'binary'
   | 'sequential-index';
 
 /**
+ * Hash algorithm selection for password lookups.
+ *
+ * - `sha1`: SHA-1 (hex, uppercase) — the historical default.
+ * - `ntlm`: MD4 of the UTF-16LE-encoded password (hex, uppercase).
+ * - `auto`: Detect the algorithm from corpus content (default). Never an
+ *   effective (resolved) value — resolution always yields `'sha1' | 'ntlm'`.
+ */
+export type HashType = 'sha1' | 'ntlm' | 'auto';
+
+/**
+ * Governance mode when the requested hash type conflicts with the detected type.
+ *
+ * - `error`: abort before scanning, naming the requested and detected types.
+ * - `warn`: emit a prominent warning and self-correct to the detected type.
+ */
+export type HashTypeMismatchMode = 'error' | 'warn';
+
+/**
+ * Canonical runtime hash-type information for a single run.
+ *
+ * Produced by the hash-type resolution step and threaded through every
+ * processing path. The effective `type` is always concrete (`sha1` or `ntlm`);
+ * `requested` preserves the original (possibly `auto`) request.
+ */
+export interface ActiveHashInfo {
+  /** The originally requested hash type (may be `auto`). */
+  requested: HashType;
+  /** The effective hash type actually used for hashing and corpus matching. */
+  type: 'sha1' | 'ntlm';
+  /** Full hex length of the effective hash (40 for sha1, 32 for ntlm). */
+  fullHashLength: number;
+  /** Suffix hex length returned by the HIBP API / stored in split files (35 or 27). */
+  apiSuffixLength: number;
+  /**
+   * How the effective type was chosen:
+   * - `explicit`: the user requested this exact type.
+   * - `detected`: auto-detected from local corpus content.
+   * - `corrected`: warn-mode self-correction from a mismatched requested type.
+   * - `api-default`: `auto` resolved to sha1 because API mode has no corpus to sample.
+   */
+  source: 'explicit' | 'detected' | 'corrected' | 'api-default';
+  /** The active mismatch governance mode. */
+  mismatchMode: HashTypeMismatchMode;
+}
+
+/**
  * Output configuration — format and file path.
  *
  * @property format - Output format: 'csv' or 'json'.
@@ -198,6 +248,10 @@ export interface ConfigInterface {
   hashesOfLeaksPath: string;
   outputs: Array<OutputConfig>;
   useHibpApi: boolean;
+  /** Requested hash algorithm (`auto` detects from corpus). Defaults to `auto`. */
+  hashType?: HashType;
+  /** Mismatch behavior vs. detected corpus type. Defaults to `error`. */
+  hashTypeMismatch?: HashTypeMismatchMode;
   singleFileReadMode: SingleFileReadMode;
   buildIndex: boolean;
   /** Include plaintext passwords, TOTP secrets, password history, and FIDO2 credentials in output.

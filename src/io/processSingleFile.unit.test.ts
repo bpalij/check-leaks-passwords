@@ -10,7 +10,8 @@ import { sequentialReader } from './readModes/sequential.js';
 import type { PasswordObject } from '../types.js';
 import * as determineOptimalChunkCountModule from '../memory/determineOptimalChunkCount.js';
 import * as detectSortednessModule from '../hashing/detectSortedness.js';
-import { IDX_PREFIX_COUNT, IDX_HEADER_SIZE } from '../constants.js';
+import { IDX_PREFIX_COUNT, IDX_HEADER_SIZE, IDX_HASH_TYPE_SHA1 } from '../constants.js';
+import { encodeIndexHeader } from './indexHeader.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
 
@@ -159,9 +160,13 @@ describe('processSingleFile mode selection', () => {
     return m;
   }
 
-  function makeFakeIdxBuffer(): Buffer {
-    const headerBuf = Buffer.alloc(IDX_HEADER_SIZE);
-    headerBuf[0] = 0x01;
+  function makeFakeIdxBuffer(fileSize = 90 * 1024 * 1024 * 1024): Buffer {
+    const headerBuf = encodeIndexHeader({
+      sorted: true,
+      hashType: IDX_HASH_TYPE_SHA1,
+      mtime: 0n,
+      fileSize: BigInt(fileSize),
+    });
     const idxBuf = Buffer.alloc((IDX_PREFIX_COUNT + 1) * 8);
     return Buffer.concat([headerBuf, idxBuf]);
   }
@@ -1141,9 +1146,13 @@ describe('processSingleFile auto-index paths', () => {
   const encoding = 'ascii';
   const fixturePath = '/fake/file.txt';
 
-  function makeFakeIdxBuffer(): Buffer {
-    const headerBuf = Buffer.alloc(IDX_HEADER_SIZE);
-    headerBuf[0] = 0x01;
+  function makeFakeIdxBuffer(fileSize = 90 * 1024 * 1024 * 1024): Buffer {
+    const headerBuf = encodeIndexHeader({
+      sorted: true,
+      hashType: IDX_HASH_TYPE_SHA1,
+      mtime: 0n,
+      fileSize: BigInt(fileSize),
+    });
     const idxBuf = Buffer.alloc((IDX_PREFIX_COUNT + 1) * 8);
     return Buffer.concat([headerBuf, idxBuf]);
   }
@@ -1676,6 +1685,10 @@ describe('processSingleFile auto-index paths', () => {
       preCheckSkipped: false,
       testDurationMs: 128,
     } as never);
+    vi.spyOn(fs.promises, 'readFile').mockImplementation(async (p) => {
+      if (typeof p === 'string' && p.endsWith('.idx')) return makeFakeIdxBuffer(2_000_000);
+      return Buffer.alloc(0);
+    });
 
     const smallDiverseMap = makeDiverseMap(34);
     const r = await processSingleFile(

@@ -15,6 +15,7 @@ const COLUMNS_ORDER = [
   'login_username',
   'login_password',
   'login_password_hash',
+  'login_password_hash_type',
   'login_password_leaks',
   'login_password_readable_leaks',
   'login_password_compact_leaks',
@@ -135,6 +136,7 @@ export const writePreparedDataToCsv = (
   options: OutputHandlerOptions = {},
 ): Promise<void> => {
   const includeSecrets = options.includeSecrets ?? false;
+  const hashType = options.hashType ?? 'sha1';
 
   const rows: Array<Record<string, string>> = data.flatMap((group) => {
     const {
@@ -144,6 +146,7 @@ export const writePreparedDataToCsv = (
       const enriched = {
         ...obj,
         login_password_hash: hash,
+        login_password_hash_type: hashType,
         login_password_leaks: String(leaks),
         login_password_readable_leaks: formatNumber(leaks),
         login_password_compact_leaks: formatCompact(leaks),

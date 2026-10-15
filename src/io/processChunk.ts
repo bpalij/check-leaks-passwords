@@ -78,6 +78,8 @@ export interface IndexRecorder {
  * @param reportProgress - Callback to report progress deltas.
  * @param indexRecorder - Optional recorder for building `.idx` files.
  * @param readAhead - Number of read-ahead slots (default from READ_AHEAD env).
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Chunk processing results and statistics.
  * @throws {Error} If a line exceeds the maximum allowed length (corrupt input).
  */
@@ -95,6 +97,7 @@ export async function processChunk(
   ) => void,
   indexRecorder?: IndexRecorder,
   readAhead?: number,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<ChunkResult> {
   const effectiveReadAhead = readAhead
     ?? parseEnvInt('READ_AHEAD', 1, MAX_READ_AHEAD, DEFAULT_READ_AHEAD);
@@ -124,13 +127,14 @@ export async function processChunk(
   let pendingLeaks = 0;
   const lastPrefixMutable = { value: -1 };
 
-  const makePbOpts = (fileOffset: number): ParseBufferOptions | undefined => {
-    if (!indexRecorder) return undefined;
-    return {
-      recordBoundary: (p: number, o: number) => indexRecorder.recordBoundary(p, o),
-      bufferFileOffset: fileOffset,
-      lastPrefix: lastPrefixMutable,
-    };
+  const makePbOpts = (fileOffset: number): ParseBufferOptions => {
+    const opts: ParseBufferOptions = { fullHashLength };
+    if (indexRecorder) {
+      opts.recordBoundary = (p: number, o: number) => indexRecorder.recordBoundary(p, o);
+      opts.bufferFileOffset = fileOffset;
+      opts.lastPrefix = lastPrefixMutable;
+    }
+    return opts;
   };
 
   /**
@@ -188,7 +192,7 @@ export async function processChunk(
       chunkLines += 1;
       const { stats, results: matchedResults } = parseBuffer(
         completedLine,
-        SHA1_HEX_LENGTH,
+        fullHashLength,
         hashLookupMap,
         fingerprintSet,
         encoding,
@@ -222,7 +226,7 @@ export async function processChunk(
 
     const { stats, results: matchedResults } = parseBuffer(
       completeSection,
-      SHA1_HEX_LENGTH,
+      fullHashLength,
       hashLookupMap,
       fingerprintSet,
       encoding,
@@ -278,7 +282,7 @@ export async function processChunk(
       chunkLines += 1;
       const { stats, results: matchedResults } = parseBuffer(
         lastPartial,
-        SHA1_HEX_LENGTH,
+        fullHashLength,
         hashLookupMap,
         fingerprintSet,
         encoding,

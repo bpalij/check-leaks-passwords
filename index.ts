@@ -27,6 +27,8 @@ Configuration via environment variables (.env or shell):
   INPUT_PATH              (required) Path to Bitwarden export (CSV or JSON)
   HASHES_OF_LEAKS_PATH    Path to HIBP hashes file or split-prefix directory
   USE_HIBP_API            true/false — query HIBP API instead of local file
+  HASH_TYPE               auto | sha1 | ntlm — password hash algorithm (default: auto)
+  HASH_TYPE_MISMATCH      error | warn — behavior on requested-vs-detected mismatch (default: error)
   OUTPUT_COUNT            Number of outputs (with OUTPUT_{i}_FORMAT, OUTPUT_{i}_PATH)
   EXPORT_PASSWORD         Alternative to --export-password
   INCLUDE_SECRETS         Alternative to --include-secrets

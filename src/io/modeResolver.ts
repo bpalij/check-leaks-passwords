@@ -15,6 +15,7 @@ import {
   IDX_HEADER_SIZE,
   IDX_PREFIX_COUNT,
 } from '../constants.js';
+import { checkIndexHeader, decodeIndexHeader, hashTypeCodeFor } from './indexHeader.js';
 import type { ReadModeEvaluation } from './readModeEvaluator.js';
 
 export type { ReadModeEvaluation } from './readModeEvaluator.js';
@@ -85,13 +86,16 @@ export function resolveMode(
  *
  * @param filePath - Path to the HIBP hashes file.
  * @param logger - Optional logging callback.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns True if the file is sorted.
  */
 export async function detectSortednessAndCleanup(
   filePath: string,
   logger?: (message: string) => void,
+  fullHashLength?: number,
 ): Promise<boolean> {
-  const sorted = await detectSortedness(filePath);
+  const sorted = await detectSortedness(filePath, fullHashLength);
   logger?.(`File sorted: ${sorted ? 'yes' : 'no'}`);
   if (!sorted) {
     logger?.('Warning: file not sorted');
@@ -103,20 +107,38 @@ export async function detectSortednessAndCleanup(
 /**
  * Load a `.idx` file into a BigUint64Array.
  *
- * The index file contains a 9-byte header (sorted flag + mtime) followed
- * by (IDX_PREFIX_COUNT + 1) 8-byte little-endian offsets.
+ * The index file contains an `IDX_HEADER_SIZE`-byte v2 header (sorted flag,
+ * version marker, hash-type code, mtime, corpus file size) followed by
+ * (IDX_PREFIX_COUNT + 1) 8-byte little-endian offsets.
+ *
+ * When `expected` is supplied, the header is validated against the corpus
+ * being scanned; a legacy, wrong-hash-type or wrong-size index is rejected so
+ * the caller can rebuild it instead of returning wrong offsets.
  *
  * @param idxPath - Path to the `.idx` file.
+ * @param expected - Optional corpus metadata used to validate the header.
+ * @param expected.hashType - Expected hash-type code.
+ * @param expected.fileSize - Expected corpus file size in bytes.
  * @returns Array of file offsets indexed by 5-character prefix.
- * @throws {Error} If the file is truncated.
+ * @throws {Error} If the file is truncated or fails metadata validation.
+ * @security Index offsets only; contains no secret material.
  */
-export async function loadIndex(idxPath: string): Promise<BigUint64Array> {
+export async function loadIndex(
+  idxPath: string,
+  expected?: { hashType: number; fileSize: number },
+): Promise<BigUint64Array> {
   const idxFile = await fs.promises.readFile(idxPath);
   const expectedSize = IDX_HEADER_SIZE + (IDX_PREFIX_COUNT + 1) * 8;
   if (idxFile.length < expectedSize) {
     throw new Error(
       `Index file "${idxPath}" is truncated: expected ${expectedSize} bytes, got ${idxFile.length}`,
     );
+  }
+  if (expected) {
+    const check = checkIndexHeader(decodeIndexHeader(idxFile), expected);
+    if (!check.ok) {
+      throw new Error(`Index file "${idxPath}" is stale: ${check.reason}. Rebuild with auto-index.`);
+    }
   }
   const arr = new BigUint64Array(IDX_PREFIX_COUNT + 1);
   for (let i = 0; i <= IDX_PREFIX_COUNT; i += 1) {
@@ -132,6 +154,10 @@ export async function loadIndex(idxPath: string): Promise<BigUint64Array> {
  * @param fileMtimeMs - Modification time of the HIBP file.
  * @param hashesWithPasswordObjects - Map for computing unique prefix count.
  * @param logger - Optional logging callback.
+ * @param expected - Optional corpus metadata; when supplied, a stale `.idx`
+ *   (wrong version, hash type or file size) is treated as absent.
+ * @param expected.fullHashLength - Full hash length of the active hash type.
+ * @param expected.fileSize - Corpus file size in bytes.
  * @returns The loaded index and unique prefix count, or null if not available.
  */
 export async function tryLoadIndex(
@@ -139,14 +165,26 @@ export async function tryLoadIndex(
   fileMtimeMs: number,
   hashesWithPasswordObjects: Map<string, Array<PasswordObject>>,
   logger?: (message: string) => void,
+  expected?: { fullHashLength: number; fileSize: number },
 ): Promise<{ idx: BigUint64Array; uniquePrefixCount: number } | null> {
   const idxPath = `${filePath}.idx`;
   let idxStat: fs.Stats | undefined;
   try { idxStat = await fs.promises.stat(idxPath); } catch { return null; }
   if (!(idxStat.mtimeMs > fileMtimeMs)) return null;
 
+  let idx: BigUint64Array;
+  try {
+    idx = await loadIndex(
+      idxPath,
+      expected && {
+        hashType: hashTypeCodeFor(expected.fullHashLength),
+        fileSize: expected.fileSize,
+      },
+    );
+  } catch {
+    return null;
+  }
   logger?.('Fresh .idx found');
-  const idx = await loadIndex(idxPath);
   const uniquePrefixes = new Set<number>();
   hashesWithPasswordObjects.forEach((_v, hash) => {
     uniquePrefixes.add(parseInt(hash.slice(0, 5), 16));
@@ -199,6 +237,7 @@ export interface DispatchParams {
   isHDD: boolean;
   buildIdx?: boolean;
   sorted?: boolean;
+  fullHashLength?: number;
   runSequential:
   (buildIdx?: boolean, sorted?: boolean) => Promise<HashWithLeaksAndPasswordObjects[]>;
 }
@@ -226,6 +265,7 @@ export async function dispatchReader(
       params.logger,
       params.onProgress,
       params.isHDD,
+      params.fullHashLength,
     );
   }
   if (ev.reader === 'binary') {
@@ -238,6 +278,7 @@ export async function dispatchReader(
       params.hashesWithPasswordObjects,
       params.logger,
       params.onProgress,
+      params.fullHashLength,
     );
   }
   return params.runSequential(params.buildIdx, params.sorted);

@@ -18,8 +18,9 @@ import { formatBytes } from '../../formatting/formatBytes.js';
 import { formatCompact } from '../../formatting/formatCompact.js';
 import { formatDuration } from '../../formatting/formatDuration.js';
 import {
-  CHUNK_OVERLAP, IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_SORTED_FLAG_OK,
+  CHUNK_OVERLAP, IDX_PREFIX_COUNT, SHA1_HEX_LENGTH,
 } from '../../constants.js';
+import { encodeIndexHeader, hashTypeCodeFor } from '../indexHeader.js';
 import {
   processChunk,
   type ChunkDescriptor,
@@ -58,9 +59,11 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
  * @param buildIndex - Whether to build a `.idx` file during processing.
  * @param sorted - Whether the file is sorted (needed for index building).
  * @param readAhead - Number of read-ahead streams per chunk.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps derived from passwords — treat as sensitive.
  */
 export async function sequentialReader(
   filePath: string,
@@ -76,6 +79,7 @@ export async function sequentialReader(
   buildIndex?: boolean,
   sorted?: boolean,
   readAhead?: number,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
   const shouldBuildIndex = buildIndex === true;
   const chunkSize = Math.ceil(fileSize / chunkCount);
@@ -159,6 +163,7 @@ export async function sequentialReader(
       reportProgress,
       indexRecorder,
       readAhead,
+      fullHashLength,
     );
     chunkResults = [result];
   } else {
@@ -168,7 +173,13 @@ export async function sequentialReader(
     const chunkPromises = chunks.map((desc) => new Promise<ChunkResult>((resolve, reject) => {
       const worker = new Worker(workerPath, {
         workerData: {
-          desc, filePath, serializedMap, serializedFingerprints, encoding, buildIndex,
+          desc,
+          filePath,
+          serializedMap,
+          serializedFingerprints,
+          encoding,
+          buildIndex,
+          fullHashLength,
         },
       });
       workers.push(worker);
@@ -241,9 +252,12 @@ export async function sequentialReader(
       }
 
       const idxPath = `${filePath}.idx`;
-      const headerBuf = Buffer.alloc(IDX_HEADER_SIZE);
-      headerBuf[0] = sorted ? IDX_SORTED_FLAG_OK : 0;
-      headerBuf.writeBigInt64LE(BigInt(mtimeSec), 1);
+      const headerBuf = encodeIndexHeader({
+        sorted: sorted === true,
+        hashType: hashTypeCodeFor(fullHashLength),
+        mtime: BigInt(mtimeSec),
+        fileSize: BigInt(fileSize),
+      });
       const idxBuf = Buffer.alloc((IDX_PREFIX_COUNT + 1) * 8);
       for (let i = 0; i <= IDX_PREFIX_COUNT; i += 1) {
         idxBuf.writeBigUInt64LE(idxArr[i], i * 8);

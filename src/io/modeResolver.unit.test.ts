@@ -18,6 +18,13 @@ import type { HashWithLeaksAndPasswordObjects } from '../types.js';
 import { detectSortedness } from '../hashing/detectSortedness.js';
 import { binarySearchReader } from './readModes/binarySearch.js';
 import { indexReader } from './readModes/indexBased.js';
+import { encodeIndexHeader } from './indexHeader.js';
+import {
+  IDX_HEADER_SIZE,
+  IDX_HASH_TYPE_SHA1,
+  IDX_HASH_TYPE_NTLM,
+  IDX_PREFIX_COUNT,
+} from '../constants.js';
 
 vi.mock('../hashing/detectSortedness.js', () => ({
   detectSortedness: vi.fn(),
@@ -183,7 +190,6 @@ describe('tryLoadIndex', () => {
   });
 
   it('returns { idx, uniquePrefixCount } when idx is fresh and valid', async () => {
-    const { IDX_PREFIX_COUNT, IDX_HEADER_SIZE } = await import('../constants.js');
     const idxBuf = Buffer.alloc(IDX_HEADER_SIZE + (IDX_PREFIX_COUNT + 1) * 8);
     vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue(idxBuf);
@@ -201,7 +207,6 @@ describe('tryLoadIndex', () => {
   });
 
   it('logs "Fresh .idx found" when logger is provided and idx is fresh', async () => {
-    const { IDX_PREFIX_COUNT, IDX_HEADER_SIZE } = await import('../constants.js');
     const idxBuf = Buffer.alloc(IDX_HEADER_SIZE + (IDX_PREFIX_COUNT + 1) * 8);
     vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue(idxBuf);
@@ -219,6 +224,90 @@ describe('tryLoadIndex', () => {
     await tryLoadIndex('/path/file.txt', 1000, new Map(), logger);
 
     expect(logger).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Build a v2 `.idx` buffer with the given header metadata.
+   *
+   * @param hashType - Hash-type code to store in the header.
+   * @param fileSize - Corpus file size to store in the header.
+   * @returns A complete `.idx` buffer (header + zeroed offsets).
+   */
+  function fakeIdx(hashType: number, fileSize: bigint): Buffer {
+    const header = encodeIndexHeader({
+      sorted: true, hashType, mtime: 0n, fileSize,
+    });
+    return Buffer.concat([header, Buffer.alloc((IDX_PREFIX_COUNT + 1) * 8)]);
+  }
+
+  it('accepts a fresh .idx whose metadata matches the corpus', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(
+      fakeIdx(IDX_HASH_TYPE_SHA1, 500n),
+    );
+
+    const result = await tryLoadIndex(
+      '/path/file.txt',
+      1000,
+      new Map(),
+      undefined,
+      { fullHashLength: 40, fileSize: 500 },
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it('rejects a fresh .idx built for a different hash type', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(
+      fakeIdx(IDX_HASH_TYPE_NTLM, 500n),
+    );
+
+    const result = await tryLoadIndex(
+      '/path/file.txt',
+      1000,
+      new Map(),
+      undefined,
+      { fullHashLength: 40, fileSize: 500 },
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('rejects a fresh .idx built for a different file size (same-path swap)', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(
+      fakeIdx(IDX_HASH_TYPE_SHA1, 999n),
+    );
+
+    const result = await tryLoadIndex(
+      '/path/file.txt',
+      1000,
+      new Map(),
+      undefined,
+      { fullHashLength: 40, fileSize: 500 },
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('rejects a legacy (pre-metadata) .idx and treats it as stale', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
+    const header = Buffer.alloc(IDX_HEADER_SIZE);
+    header[0] = 0x01;
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(
+      Buffer.concat([header, Buffer.alloc((IDX_PREFIX_COUNT + 1) * 8)]),
+    );
+
+    const result = await tryLoadIndex(
+      '/path/file.txt',
+      1000,
+      new Map(),
+      undefined,
+      { fullHashLength: 40, fileSize: 500 },
+    );
+
+    expect(result).toBeNull();
   });
 });
 

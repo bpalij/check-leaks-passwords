@@ -24,18 +24,24 @@ function findNewline(buf: Buffer, start: number, end: number): number {
 }
 
 /**
- * Extract a SHA-1 hex hash from a line in the buffer.
+ * Extract a hex hash from a line in the buffer.
  *
  * @param buf - The buffer containing the line.
  * @param lineStart - Start of the line.
  * @param lineEnd - End of the line (exclusive).
- * @returns The 40-character hex hash string, or null if the line is too short.
+ * @param hashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ * @returns The hex hash string, or null if the line is too short.
  */
-function extractHash(buf: Buffer, lineStart: number, lineEnd: number): string | null {
-  if (lineEnd - lineStart < SHA1_HEX_LENGTH) return null;
+function extractHash(
+  buf: Buffer,
+  lineStart: number,
+  lineEnd: number,
+  hashLength: number,
+): string | null {
+  if (lineEnd - lineStart < hashLength) return null;
   const end = lineEnd > lineStart && buf[lineEnd - 1] === 0x0D ? lineEnd - 1 : lineEnd;
-  if (end - lineStart < SHA1_HEX_LENGTH) return null;
-  return buf.toString('ascii', lineStart, lineStart + SHA1_HEX_LENGTH);
+  if (end - lineStart < hashLength) return null;
+  return buf.toString('ascii', lineStart, lineStart + hashLength);
 }
 
 /**
@@ -44,9 +50,10 @@ function extractHash(buf: Buffer, lineStart: number, lineEnd: number): string | 
  * Used by `detectSortedness()` to verify sortedness of HIBP file segments.
  *
  * @param buf - The buffer containing hash lines.
+ * @param hashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
  * @returns True if all consecutive hash pairs are in non-decreasing order.
  */
-function checkBufferSorted(buf: Buffer): boolean {
+function checkBufferSorted(buf: Buffer, hashLength: number): boolean {
   let lineStart = 0;
   let prevHash: string | null = null;
   const len = buf.length;
@@ -55,8 +62,8 @@ function checkBufferSorted(buf: Buffer): boolean {
     const nl = findNewline(buf, lineStart, len);
     const lineEnd = nl === -1 ? len : nl;
 
-    if (lineEnd - lineStart >= SHA1_HEX_LENGTH) {
-      const hash = extractHash(buf, lineStart, lineEnd);
+    if (lineEnd - lineStart >= hashLength) {
+      const hash = extractHash(buf, lineStart, lineEnd, hashLength);
       if (hash === null) {
         lineStart = nl === -1 ? len : nl + 1;
         continue;
@@ -98,13 +105,18 @@ function skipToLineStart(buf: Buffer, start: number, end: number): number {
  * Also checks the `.idx` cache file for a pre-computed sortedness flag.
  *
  * @param filePath - Path to the HIBP hashes file.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns True if the file appears to be sorted.
  */
-export async function detectSortedness(filePath: string): Promise<boolean> {
+export async function detectSortedness(
+  filePath: string,
+  fullHashLength: number = SHA1_HEX_LENGTH,
+): Promise<boolean> {
   const stat = await fs.promises.stat(filePath);
   const fileSize = stat.size;
 
-  if (fileSize < SHA1_HEX_LENGTH + 5) return false;
+  if (fileSize < fullHashLength + 5) return false;
 
   // Check .idx cache — if a fresh index exists, read the sorted flag
   const idxPath = `${filePath}.idx`;
@@ -125,13 +137,13 @@ export async function detectSortedness(filePath: string): Promise<boolean> {
   const startBytes = Math.min(100 * 80, fileSize);
   const startBuf = Buffer.alloc(startBytes);
   const { bytesRead: startRead } = await fd.read(startBuf, 0, startBytes, 0);
-  if (!checkBufferSorted(startBuf.subarray(0, startRead))) return false;
+  if (!checkBufferSorted(startBuf.subarray(0, startRead), fullHashLength)) return false;
 
   // Phase 2: Check last 100 lines near end
   const endBytes = Math.min(100 * 80, fileSize);
   const endBuf = Buffer.alloc(endBytes);
   const { bytesRead: endRead } = await fd.read(endBuf, 0, endBytes, fileSize - endBytes);
-  if (!checkBufferSorted(endBuf.subarray(0, endRead))) return false;
+  if (!checkBufferSorted(endBuf.subarray(0, endRead), fullHashLength)) return false;
 
   // Phase 3: Random positions — spot-check sortedness at random file offsets
   const buf = Buffer.alloc(512);
@@ -140,21 +152,21 @@ export async function detectSortedness(filePath: string): Promise<boolean> {
     const pos = Math.floor(Math.random() * maxStart);
     // eslint-disable-next-line no-await-in-loop
     const { bytesRead } = await fd.read(buf, 0, 256, pos);
-    if (bytesRead < SHA1_HEX_LENGTH * 2 + 5) { continue; }
+    if (bytesRead < fullHashLength * 2 + 5) { continue; }
 
     const lineStart = skipToLineStart(buf, 0, bytesRead);
-    if (lineStart === -1 || bytesRead - lineStart < SHA1_HEX_LENGTH * 2 + 5) {
+    if (lineStart === -1 || bytesRead - lineStart < fullHashLength * 2 + 5) {
       continue;
     }
 
     const nl1 = findNewline(buf, lineStart, bytesRead);
     if (nl1 === -1) { continue; }
-    const hash1 = extractHash(buf, lineStart, nl1);
+    const hash1 = extractHash(buf, lineStart, nl1, fullHashLength);
     if (!hash1) { continue; }
 
     const nl2 = findNewline(buf, nl1 + 1, bytesRead);
     if (nl2 === -1) { continue; }
-    const hash2 = extractHash(buf, nl1 + 1, nl2);
+    const hash2 = extractHash(buf, nl1 + 1, nl2, fullHashLength);
     if (!hash2) { continue; }
 
     if (hash1 > hash2) return false;

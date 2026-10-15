@@ -198,13 +198,7 @@ describe('checkPasswordsLeaks integration', () => {
       outputs: [{ format: 'json', path: outputPath }],
     });
 
-    try {
-      await checkPasswordsLeaks(cfg);
-      const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-      expect(output).toHaveLength(0);
-    } finally {
-      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
-    }
+    await expect(checkPasswordsLeaks(cfg)).rejects.toThrow(/hash type/i);
   });
 
   it('throws for unknown output format', async () => {
@@ -904,6 +898,28 @@ describe('checkPasswordsLeaks integration', () => {
     }
   });
 
+  it('NTLM run reports hash type in summary and per-record outputs', async () => {
+    const outputPath = path.join(import.meta.dirname, '__output__', `ntlm-${Date.now()}.json`);
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await checkPasswordsLeaks(makeConfig({
+        inputPath: path.join(fixturesDir, 'ntlm-vault.json'),
+        hashesOfLeaksPath: path.join(fixturesDir, 'ntlm-hashes.txt'),
+        hashType: 'ntlm',
+        outputs: [{ format: 'json', path: outputPath }],
+      }));
+
+      const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+      expect(output.length).toBeGreaterThan(0);
+      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      const printed = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(printed).toContain('Hash type: ntlm (explicit)');
+    } finally {
+      writeSpy.mockRestore();
+      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+    }
+  });
+
   it('dry run with useHibpApi — shows HIBP API mode, no hashes file', async () => {
     const mockInputHandler = vi.fn().mockImplementation(
       async (_p: string, _pw: string, onComplete?: () => void) => {
@@ -1021,7 +1037,7 @@ describe('checkPasswordsLeaks integration', () => {
     const outDir = makeTmpDir();
     const splitDir = path.join(outDir, 'split');
     fs.mkdirSync(splitDir, { recursive: true });
-    fs.writeFileSync(path.join(splitDir, 'AAAAA.txt'), 'A000000000000000000000000000000000000000:100\n', 'ascii');
+    fs.writeFileSync(path.join(splitDir, 'AAAAA.txt'), `${'A'.repeat(35)}:100\n`, 'ascii');
 
     const outputPath = path.join(outDir, 'out.json');
     const cfg: ConfigInterface = {
@@ -1045,7 +1061,7 @@ describe('checkPasswordsLeaks integration', () => {
     fs.mkdirSync(splitDir, { recursive: true });
     fs.writeFileSync(
       path.join(splitDir, 'AAAAA.txt'),
-      'A000000000000000000000000000000000000000:100\n',
+      `${'A'.repeat(35)}:100\n`,
       'ascii',
     );
     fs.writeFileSync(
@@ -1114,10 +1130,9 @@ describe('checkPasswordsLeaks integration', () => {
 
     for (let i = 0; i < prefixCount; i += 1) {
       const prefix = i.toString(16).toUpperCase().padStart(5, '0');
-      const hash = `${prefix}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
       fs.writeFileSync(
         path.join(splitDir, `${prefix}.txt`),
-        `${hash}:${50 + i}\n`,
+        `${'A'.repeat(35)}:${50 + i}\n`,
         'ascii',
       );
     }
@@ -1137,5 +1152,135 @@ describe('checkPasswordsLeaks integration', () => {
     const outputPath = path.join(outDir, 'split-15.json');
     const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
     expect(Array.isArray(output)).toBe(true);
+  });
+});
+
+describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)', () => {
+  let originalFetch: typeof global.fetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  function sha1Counts(): Map<string, number> {
+    const lines = fs.readFileSync(path.join(fixturesDir, 'sample-hashes.txt'), 'utf-8').trim().split('\n');
+    const counts = new Map<string, number>();
+    lines.forEach((line) => {
+      const [fullHash, count] = line.split(':');
+      counts.set(fullHash, Number(count));
+    });
+    return counts;
+  }
+
+  function stubSha1Api(): void {
+    const counts = sha1Counts();
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const prefix = url.split('/').pop() ?? '';
+      const lines: string[] = [];
+      counts.forEach((count, fullHash) => {
+        if (fullHash.startsWith(prefix)) lines.push(`${fullHash.slice(5)}:${count}`);
+      });
+      return {
+        ok: true,
+        headers: { get: () => 'MISS' },
+        arrayBuffer: () => Promise.resolve(Buffer.from(lines.join('\n'), 'ascii')),
+      };
+    }) as unknown as typeof global.fetch;
+  }
+
+  it('API + auto resolves to sha1 with a notice on stderr and in the summary (FR-006)', async () => {
+    stubSha1Api();
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const outputPath = path.join(import.meta.dirname, '__output__', `api-auto-${Date.now()}.json`);
+    try {
+      await checkPasswordsLeaks(makeConfig({
+        hashesOfLeaksPath: '',
+        useHibpApi: true,
+        hashType: 'auto',
+        outputs: [{ format: 'json', path: outputPath }],
+      }));
+
+      const err = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+      const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(err).toContain('auto');
+      expect(err).toContain('sha1');
+      expect(err).toContain('HASH_TYPE=ntlm');
+      expect(out).toContain('Hash type: sha1 (auto not applicable in API mode)');
+      expect(out).toContain('Notice:');
+    } finally {
+      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('warn mode self-corrects, surfaces the override, and matches an explicit sha1 run (FR-007/SC-007)', async () => {
+    const correctedPath = path.join(import.meta.dirname, '__output__', `mismatch-warn-${Date.now()}.json`);
+    const explicitPath = path.join(import.meta.dirname, '__output__', `mismatch-explicit-${Date.now()}.json`);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await checkPasswordsLeaks(makeConfig({
+        hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
+        hashType: 'ntlm',
+        hashTypeMismatch: 'warn',
+        outputs: [{ format: 'json', path: correctedPath }],
+      }));
+      await checkPasswordsLeaks(makeConfig({
+        hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
+        hashType: 'sha1',
+        outputs: [{ format: 'json', path: explicitPath }],
+      }));
+
+      const corrected = JSON.parse(fs.readFileSync(correctedPath, 'utf-8'));
+      const explicit = JSON.parse(fs.readFileSync(explicitPath, 'utf-8'));
+      expect(corrected).toEqual(explicit);
+      expect(corrected[0].passwordObjects[0].login_password_hash_type).toBe('sha1');
+
+      const err = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+      const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(err).toContain('ntlm');
+      expect(err).toContain('sha1');
+      expect(out).toContain('Hash type: sha1 (corrected from ntlm)');
+    } finally {
+      try { fs.unlinkSync(correctedPath); } catch { /* ignore */ }
+      try { fs.unlinkSync(explicitPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('error mode aborts on an explicit-vs-detected mismatch before scanning (FR-007/SC-004)', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await expect(checkPasswordsLeaks(makeConfig({
+        hashesOfLeaksPath: path.join(fixturesDir, 'sample-hashes.txt'),
+        hashType: 'ntlm',
+        hashTypeMismatch: 'error',
+      }))).rejects.toThrow('HASH_TYPE=ntlm was requested, but the corpus contains sha1 hashes');
+
+      const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(out).not.toContain('Scanning file');
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('rejects an invalid hash type before any reading or scanning begins (FR-009/SC-004)', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await expect(checkPasswordsLeaks(makeConfig({
+        hashType: 'md5' as 'auto',
+      }))).rejects.toThrow('hashType must be one of: auto, sha1, ntlm');
+
+      const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(out).not.toContain('Input format');
+    } finally {
+      stdoutSpy.mockRestore();
+    }
   });
 });

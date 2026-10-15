@@ -1,4 +1,5 @@
 import { PasswordObject, HashLookupEntry } from '../types.js';
+import { SHA1_HEX_LENGTH } from '../constants.js';
 
 /**
  * Build a hash lookup map from password hashes.
@@ -8,15 +9,18 @@ import { PasswordObject, HashLookupEntry } from '../types.js';
  * - `set`: Set of all 4-byte keys for fast rejection (fingerprint optimization).
  *
  * The 4-byte key provides O(1) lookup in the hot path. The candidate list
- * is then scanned with byte-by-byte comparison for the remaining 36 characters.
+ * is then scanned with byte-by-byte comparison for the remaining characters.
  *
- * @param hashes - Map from SHA-1 hex hash to password objects.
+ * @param hashes - Map from full hex hash to password objects.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Object containing the lookup map and fingerprint set.
  *
- * @security The map contains SHA-1 hashes of passwords — treat as sensitive.
+ * @security The map contains password hashes — treat as sensitive.
  */
 export function buildHashLookupMap(
   hashes: Map<string, Array<PasswordObject>>,
+  fullHashLength: number = SHA1_HEX_LENGTH,
 ): { map: Map<number, HashLookupEntry[]>; set: Set<number> } {
   const map = new Map<number, HashLookupEntry[]>();
   const set = new Set<number>();
@@ -26,7 +30,7 @@ export function buildHashLookupMap(
     set.add(firstFourBytesInt);
     const entry: HashLookupEntry = {
       fullHash: hash,
-      fullHashBytes: hashBuf.subarray(0, 40),
+      fullHashBytes: hashBuf.subarray(0, fullHashLength),
     };
     map.getOrInsert(firstFourBytesInt, []).push(entry);
   });

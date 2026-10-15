@@ -11,6 +11,12 @@ import {
   afterEach,
 } from 'vitest';
 
+import {
+  IDX_HEADER_SIZE,
+  IDX_HASH_TYPE_NTLM,
+  IDX_VERSION_V2,
+} from '../constants.js';
+
 const execFileAsync = promisify(execFile);
 
 describe('buildIndex — child process integration', () => {
@@ -63,7 +69,7 @@ describe('buildIndex — child process integration', () => {
       {
         cwd: path.resolve(__dirname, '../..'),
         timeout: 90_000,
-        env: { ...process.env, NODE_NO_WARNINGS: '1' },
+        env: { ...process.env, NODE_NO_WARNINGS: '1', HASH_TYPE: 'auto' },
       },
     );
 
@@ -106,14 +112,62 @@ describe('buildIndex — child process integration', () => {
       {
         cwd: path.resolve(__dirname, '../..'),
         timeout: 90_000,
-        env: { ...process.env, NODE_NO_WARNINGS: '1' },
+        env: { ...process.env, NODE_NO_WARNINGS: '1', HASH_TYPE: 'auto' },
       },
     );
 
     const idxPath = `${hashFile}.idx`;
     const idxBuf = fs.readFileSync(idxPath);
-    const IDX_HEADER_SIZE = 9;
     expect(idxBuf.length).toBeGreaterThan(IDX_HEADER_SIZE);
+  });
+
+  it('builds an NTLM-typed index for a 32-char corpus and records the hash type', { timeout: 120_000 }, async () => {
+    const dir = makeTmpDir();
+    const hashFile = path.join(dir, 'ntlm-hashes.txt');
+    const lines: string[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      lines.push(`${i.toString(16).toUpperCase().padStart(32, '0')}:${100 + i}`);
+    }
+    fs.writeFileSync(hashFile, `${lines.join('\n')}\n`, 'ascii');
+
+    const configDir = path.join(dir, 'config');
+    fs.mkdirSync(configDir);
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({
+        inputPath: path.join(dir, 'dummy.csv'),
+        hashesOfLeaksPath: hashFile,
+        useHibpApi: false,
+        singleFileReadMode: 'auto',
+        buildIndex: false,
+        outputs: [{ format: 'json', path: path.join(dir, 'out.json') }],
+      }),
+      'utf-8',
+    );
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      [
+        'tsx',
+        'src/scripts/buildIndex.ts',
+        hashFile,
+      ],
+      {
+        cwd: path.resolve(__dirname, '../..'),
+        timeout: 90_000,
+        env: { ...process.env, NODE_NO_WARNINGS: '1', HASH_TYPE: 'auto' },
+      },
+    );
+
+    expect(stdout).toContain('Index built');
+    const idxPath = `${hashFile}.idx`;
+    expect(fs.existsSync(idxPath)).toBe(true);
+
+    const idxBuf = fs.readFileSync(idxPath);
+    expect(idxBuf.length).toBeGreaterThan(IDX_HEADER_SIZE);
+    // v2 header: byte 1 is the version marker, byte 2 the hash-type code.
+    expect(idxBuf[1]).toBe(IDX_VERSION_V2);
+    expect(idxBuf[2]).toBe(IDX_HASH_TYPE_NTLM);
   });
 
   it('rejects unsorted file with error', { timeout: 120_000 }, async () => {
@@ -148,7 +202,7 @@ describe('buildIndex — child process integration', () => {
         {
           cwd: path.resolve(__dirname, '../..'),
           timeout: 90_000,
-          env: { ...process.env, NODE_NO_WARNINGS: '1' },
+          env: { ...process.env, NODE_NO_WARNINGS: '1', HASH_TYPE: 'auto' },
         },
       );
       expect.fail('Expected process to exit with error');

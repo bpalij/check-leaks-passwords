@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 
@@ -18,11 +17,14 @@ import type {
   PasswordObject,
   OnProgress,
   ProgressUpdate,
+  ActiveHashInfo,
 } from './types.js';
 import { processDataLeaks } from './io/processDataLeaks.js';
 import { formatDuration } from './formatting/formatDuration.js';
 import { processHibpApi } from './io/processHibpApi.js';
 import { HIBP_API_URL } from './constants.js';
+import { hashPassword } from './hashing/hashPassword.js';
+import { detectLocalHashType, resolveActiveHashInfo } from './hashing/detectHashType.js';
 
 process.env.UV_THREADPOOL_SIZE ??= String(os.availableParallelism());
 
@@ -79,6 +81,20 @@ const bar = new cliProgress.SingleBar({
   clearOnComplete: false,
   stream: process.stdout,
 });
+
+/**
+ * Describe the active hash type and how it was chosen, for user-facing summaries.
+ *
+ * @param info - The resolved active hash info.
+ * @returns A label such as `ntlm (detected)`, `sha1 (explicit)`, or
+ *   `ntlm (corrected from sha1)`.
+ */
+const describeHashType = (info: ActiveHashInfo): string => {
+  if (info.source === 'corrected') return `${info.type} (corrected from ${info.requested})`;
+  if (info.source === 'detected') return `${info.type} (detected)`;
+  if (info.source === 'api-default') return `${info.type} (auto not applicable in API mode)`;
+  return `${info.type} (explicit)`;
+};
 
 /**
  * Register a process exit handler to restore the cursor.
@@ -256,7 +272,7 @@ const makePhase = <T>(
  * 1. Validate configuration.
  * 2. Auto-detect input format (CSV or JSON).
  * 3. Read input file (handles encrypted exports).
- * 4. Hash passwords with SHA-1.
+ * 4. Resolve the effective hash type (explicit/detected/auto) and hash passwords with it.
  * 5. Scan HIBP data (file or API) for each hash.
  * 6. Sort results by leak count (descending).
  * 7. Write output (CSV or JSON, with optional secret stripping).
@@ -295,6 +311,7 @@ export async function checkPasswordsLeaks(
     passwordObjects: PasswordObject[];
   };
   let dataWithLeaks: LeakGroup[] | null = null;
+  let hashNotice: string | undefined;
 
   try {
     const readSpinner = createSpinner('Reading input file...').start();
@@ -312,6 +329,39 @@ export async function checkPasswordsLeaks(
       readSpinner.succeed(`Found ${formatNumber(input.length)} correct not-empty passwords in input file`);
     }
 
+    // Resolve the effective hash type before hashing or scanning so that an
+    // invalid request, an unreadable/ambiguous corpus, or an explicit-vs-detected
+    // mismatch (in `error` mode) aborts before any work is done.
+    const requestedHashType = config.hashType ?? 'auto';
+    const mismatchMode = config.hashTypeMismatch ?? 'error';
+    let activeHashInfo: ActiveHashInfo;
+    if (config.useHibpApi) {
+      const resolved = resolveActiveHashInfo({
+        requested: requestedHashType,
+        mismatchMode,
+        isApiMode: true,
+      });
+      if (resolved.notice) {
+        // FR-006: the notice must reach stderr and be echoed in the console summary.
+        process.stderr.write(`Notice: ${resolved.notice}\n`);
+        hashNotice = resolved.notice;
+      }
+      activeHashInfo = resolved.info;
+    } else {
+      const detected = await detectLocalHashType(config.hashesOfLeaksPath);
+      const resolved = resolveActiveHashInfo({
+        requested: requestedHashType,
+        mismatchMode,
+        isApiMode: false,
+        detected,
+      });
+      if (resolved.warning) {
+        process.stderr.write(`${chalk.yellow('Warning:')} ${resolved.warning}\n`);
+      }
+      activeHashInfo = resolved.info;
+    }
+    process.stdout.write(`Hash type: ${describeHashType(activeHashInfo)}\n`);
+
     hashesMap = new Map();
     hashCache = new Map();
 
@@ -319,7 +369,10 @@ export async function checkPasswordsLeaks(
     const inputCount = input!.length;
     input!.forEach((obj) => {
       const password = extractPassword(obj)!;
-      const hash = hashCache!.getOrInsertComputed(password, () => crypto.hash('sha1', password, 'hex').toUpperCase());
+      const hash = hashCache!.getOrInsertComputed(
+        password,
+        () => hashPassword(password, activeHashInfo.type),
+      );
       hashesMap!.getOrInsert(hash, []).push(obj);
     });
     const uniqueHashCount = hashesMap!.size;
@@ -343,13 +396,22 @@ export async function checkPasswordsLeaks(
         process.stdout.write('Mode:             HIBP API (k-anonymity)\n');
       }
       process.stdout.write(`Read mode:        ${config.singleFileReadMode}\n`);
+      process.stdout.write(`Hash type:        ${describeHashType(activeHashInfo)}\n`);
+      if (hashNotice) process.stdout.write(`Notice:           ${hashNotice}\n`);
       return;
     }
 
     if (config.useHibpApi) {
       dataWithLeaks = await makePhase('Query API', 'Querying API', async (onPhaseProgress, log) => {
         const apiUrl = config.hibpApiUrl ?? HIBP_API_URL;
-        const result = await processHibpApi(hashesMap!, apiUrl, log, onPhaseProgress, (msg) => process.stderr.write(`${msg}\n`));
+        const result = await processHibpApi(
+          hashesMap!,
+          apiUrl,
+          log,
+          onPhaseProgress,
+          (msg) => process.stderr.write(`${msg}\n`),
+          activeHashInfo.fullHashLength,
+        );
         return result;
       });
     } else {
@@ -362,6 +424,7 @@ export async function checkPasswordsLeaks(
           onPhaseProgress,
           config.singleFileReadMode,
           config.buildIndex,
+          activeHashInfo.fullHashLength,
         );
         return result;
       });
@@ -388,6 +451,8 @@ export async function checkPasswordsLeaks(
       + ` out of ${formatNumber(leakedPasswordCount + safeCount)} total`
       + ` (${formatNumber(safeCount)} safe)\n`,
     );
+    process.stdout.write(`Hash type: ${describeHashType(activeHashInfo)}\n`);
+    if (hashNotice) process.stdout.write(`Notice: ${hashNotice}\n`);
 
     const writeSpinner = createSpinner('Writing output...').start();
     for (let i = 0; i < config.outputs.length; i += 1) {
@@ -398,7 +463,10 @@ export async function checkPasswordsLeaks(
         throw new Error(`Unknown output format: ${output.format}`);
       }
       // eslint-disable-next-line no-await-in-loop
-      await handler(output.path, dataWithLeaks, { includeSecrets: config.includeSecrets });
+      await handler(output.path, dataWithLeaks, {
+        includeSecrets: config.includeSecrets,
+        hashType: activeHashInfo.type,
+      });
     }
     writeSpinner.succeed('Writing output');
 

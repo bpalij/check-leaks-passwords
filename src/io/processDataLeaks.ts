@@ -20,9 +20,11 @@ import { processSplitDirectory } from './processSplitDirectory.js';
  * @param onProgress - Optional progress callback.
  * @param singleFileReadMode - Read mode override for single-file processing.
  * @param buildIndex - Whether to build a `.idx` file during processing.
+ * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
+ *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
- * @security Handles SHA-1 hash maps derived from passwords — treat as sensitive.
+ * @security Handles password hash maps derived from passwords — treat as sensitive.
  */
 export async function processDataLeaks(
   hashesWithPasswordObjects: Map<string, Array<PasswordObject>>,
@@ -32,6 +34,7 @@ export async function processDataLeaks(
   onProgress?: OnProgress,
   singleFileReadMode?: SingleFileReadMode,
   buildIndex?: boolean,
+  fullHashLength?: number,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
   const stat = await fs.promises.stat(hashesPath);
   if (stat.isDirectory()) {
@@ -41,6 +44,7 @@ export async function processDataLeaks(
       encoding,
       logger,
       onProgress,
+      fullHashLength,
     );
   }
   return processSingleFile(
@@ -52,5 +56,6 @@ export async function processDataLeaks(
     onProgress,
     singleFileReadMode,
     buildIndex,
+    fullHashLength,
   );
 }

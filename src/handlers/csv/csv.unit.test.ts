@@ -210,10 +210,10 @@ describe('CSV output handler', () => {
     try {
       await writePreparedDataToCsv(tmpFile, makeSampleData(), { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
-      expect(content).toContain('name,login_password,login_password_hash,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks');
-      expect(content).toContain('site1,pass1,ABC123,1000,1 000,1K');
-      expect(content).toContain('site2,pass2,ABC123,1000,1 000,1K');
-      expect(content).toContain('site3,pass3,DEF456,500,500,500');
+      expect(content).toContain('name,login_password,login_password_hash,login_password_hash_type,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks');
+      expect(content).toContain('site1,pass1,ABC123,sha1,1000,1 000,1K');
+      expect(content).toContain('site2,pass2,ABC123,sha1,1000,1 000,1K');
+      expect(content).toContain('site3,pass3,DEF456,sha1,500,500,500');
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }

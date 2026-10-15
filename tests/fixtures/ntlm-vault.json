@@ -1,0 +1,79 @@
+{
+  "items": [
+    {
+      "favorite": false,
+      "type": 1,
+      "name": "Ntlm Password",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "password",
+        "username": "a@example.com",
+        "uris": null,
+        "totp": null
+      }
+    },
+    {
+      "favorite": false,
+      "type": 1,
+      "name": "Ntlm Numeric",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "123456",
+        "username": "b@example.com",
+        "uris": null,
+        "totp": null
+      }
+    },
+    {
+      "favorite": false,
+      "type": 1,
+      "name": "Ntlm Letmein",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "letmein",
+        "username": "c@example.com",
+        "uris": null,
+        "totp": null
+      }
+    },
+    {
+      "favorite": false,
+      "type": 1,
+      "name": "Ntlm Password123",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "password123",
+        "username": "d@example.com",
+        "uris": null,
+        "totp": null
+      }
+    },
+    {
+      "favorite": false,
+      "type": 1,
+      "name": "Ntlm Safe",
+      "notes": null,
+      "fields": null,
+      "reprompt": 0,
+      "archivedDate": null,
+      "login": {
+        "password": "notleaked-unique-password",
+        "username": "e@example.com",
+        "uris": null,
+        "totp": null
+      }
+    }
+  ]
+}

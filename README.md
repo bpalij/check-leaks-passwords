@@ -9,7 +9,7 @@ Requires Node >= 26.
 ## Quick Start
 
 1. Export your passwords as CSV or JSON from a Bitwarden-compatible manager (encrypted exports are also supported — see [Encrypted Exports](#encrypted-exports)).
-2. Download the SHA1 hashes list from <https://haveibeenpwned.com/Passwords> and extract the `.txt` file.
+2. Download the SHA1 hashes list from <https://haveibeenpwned.com/Passwords> and extract the `.txt` file. (To check NTLM hashes instead, download the NTLM variant with the [Pwned Passwords Downloader](https://github.com/HaveIBeenPwned/PwnedPasswordsDownloader) and set `HASH_TYPE=ntlm` — see [Hash Types](#hash-types).)
 3. Clone this repository.
 4. Copy `.env.example` to `.env` and edit the values to match your paths.
 5. `npm i`
@@ -28,6 +28,8 @@ CLI flags (`--include-secrets`, `--export-password`, `--dry-run`) override `.env
 | `INPUT_PATH` | — | Path to your password export file (CSV or JSON). Format is auto-detected. |
 | `HASHES_OF_LEAKS_PATH` | — | Path to the HIBP hashes file or split-file directory (~90 GB as of 06.2026). Required when `USE_HIBP_API=false`. |
 | `USE_HIBP_API` | `false` | `false` = scan a local hashes file or split-file directory; `true` = query the HIBP API over the network. |
+| `HASH_TYPE` | `auto` | Password hash algorithm: `auto`, `sha1`, or `ntlm`. See [Hash Types](#hash-types). |
+| `HASH_TYPE_MISMATCH` | `error` | Behavior when the requested hash type conflicts with the detected corpus type: `error` (abort) or `warn` (self-correct). See [Hash Types](#hash-types). |
 | `SINGLE_FILE_READ_MODE` | `auto` | File scanning strategy. See [Read Modes](#read-modes) below. |
 | `BUILD_INDEX` | `false` | Whether to build a `.idx` prefix-index file during the scan for faster future runs. See [Read Modes](#read-modes). |
 | `INCLUDE_SECRETS` | `false` | `false` (recommended) — output excludes plaintext passwords, TOTP secrets, password history, and FIDO2 credentials. `true` — output includes all secrets in plaintext on disk. ⚠️ INSECURE when `true`. |
@@ -52,6 +54,27 @@ Modes marked with * require the file to be sorted lexicographically (the HIBP do
 | `index` * | **Warning:** falls back to `auto` behavior without index building. | Random-read via a pre-built `.idx` file. Fastest mode for repeated runs on the same data. If no fresh `.idx` exists, the first run falls back to a sequential scan that builds the index as a side-effect; subsequent runs use the index. |
 
 **Auto-detection logic:** For files >= 1 GB a short drive speed test runs (three 16 MB reads). Sequential throughput above 300 MB/s classifies the drive as SSD; at or below that, as HDD. SSDs get multi-chunk parallel scanning (chunk count auto-scaled to disk speed, CPU cores, and available memory). HDDs get a single chunk. Files under 1 GB skip the speed test and use one chunk. `READ_MODE_FORCED` can override this to use binary or index on small files.
+
+### Hash Types
+
+By default the tool hashes passwords with **SHA-1** and checks them against the standard HIBP SHA-1 corpus. Set `HASH_TYPE=ntlm` to hash passwords with the NTLM format instead (MD4 of the UTF-16LE-encoded password), for use with the NTLM corpus produced by the official [Pwned Passwords Downloader](https://github.com/HaveIBeenPwned/PwnedPasswordsDownloader) (NTLM hashes are 32 hex characters; split-prefix suffixes are 27).
+
+| `HASH_TYPE` | Behavior |
+| --- | --- |
+| `auto` **(default)** | Detect the type from corpus content: a 40-char hash part (single file) or 35-char suffix (split dir) → SHA-1; 32 / 27 → NTLM. In API mode there is no corpus to sample, so `auto` resolves to SHA-1 and prints a notice. |
+| `sha1` | Force SHA-1. |
+| `ntlm` | Force NTLM. |
+
+Detection is always content-based and never uses file names. When `auto` cannot determine a single type — an empty/unreadable corpus, malformed lines, or a corpus mixing both types — the run aborts rather than guessing.
+
+`HASH_TYPE_MISMATCH` controls what happens when an explicitly requested type conflicts with the detected corpus type:
+
+| `HASH_TYPE_MISMATCH` | Behavior |
+| --- | --- |
+| `error` **(default)** | Abort before scanning with a message naming the requested and detected types. |
+| `warn` | Emit a prominent warning (to stderr and the summary), self-correct to the detected type, and produce correct results. |
+
+In both modes an ambiguous or unreadable corpus is a hard error. The effective type actually used is recorded on every result (`login_password_hash_type` in JSON and CSV) and shown in the console summary. SHA-1 behavior is unchanged when no NTLM selection is made. `.idx` index files record the hash type and file size they were built for; an index built for a different type or size is treated as stale and rebuilt.
 
 ### `READ_MODE_FORCED` Error Behavior
 
@@ -106,7 +129,7 @@ node --permission --allow-fs-read=/path/to/hashes.txt --allow-fs-write=/path/to/
 
 1. **Validate** the configuration (input paths, formats, output targets).
 2. **Read** the input file (CSV or JSON, Bitwarden-compatible). If the JSON is a password-protected encrypted export, decrypt it first using the export password (see [Encrypted Exports](#encrypted-exports)).
-3. **Hash** every password with SHA1.
+3. **Hash** every password with the active hash type (SHA-1 by default, or the auto-detected/explicitly selected SHA-1 or NTLM).
 4. **Scan** using the selected strategy:
    - `useHibpApi: true` -- queries the HIBP k-anonymity API with prefix grouping and a concurrency pool.
    - `useHibpApi: false` -- detects single file vs. split-prefix directory, runs a drive speed test (files >= 1 GB), determines chunk count, and scans in parallel via child-process workers.
@@ -185,6 +208,8 @@ The password can be supplied in four ways (in order of precedence):
 INPUT_PATH=/path/to/bitwarden_encrypted_export.json
 HASHES_OF_LEAKS_PATH=/path/to/pwned-passwords-sha1-ordered-by-hash.txt
 USE_HIBP_API=false
+HASH_TYPE=auto
+HASH_TYPE_MISMATCH=error
 
 OUTPUT_COUNT=1
 OUTPUT_0_FORMAT=json
@@ -195,6 +220,7 @@ OUTPUT_0_PATH=/path/to/results.json
 
 - Passing the password via CLI flag or environment variable is **insecure** — visible in process lists or stored as plaintext in `.env`. Prefer the interactive prompt.
 - The export password and derived keys are held in memory only during decryption (~100-500ms) and are zeroed immediately after use.
+- Plaintext passwords are materialized as owned buffers only while hashing and are zeroed immediately after; the SHA-1 (UTF-8) and NTLM (UTF-16LE) buffers and the MD4 working buffers are all cleared.
 - Decrypted vault data is never written to disk — it exists in memory only long enough to extract passwords.
 - A password validation step (encrypted UUID v4 check) confirms the password is correct before attempting vault decryption.
 - Each incorrect password attempt takes 1-5 seconds due to the KDF, providing brute-force resistance.

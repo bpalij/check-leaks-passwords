@@ -616,9 +616,24 @@ describe('JSON output handler', () => {
       expect(content[0].leaks).toBe(1000);
       expect(content[0].passwordObjects[0].login_password).toBe('pass1');
       expect(content[0].passwordObjects[0].login_password_hash).toBe('ABC123');
+      expect(content[0].passwordObjects[0].login_password_hash_type).toBe('sha1');
       expect(content[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(content[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
       expect(content[0].passwordObjects[0].login_password_compact_leaks).toBe('1K');
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+    }
+  });
+
+  it('records the active hash type in each output record', async () => {
+    const tmpFile = path.join(os.tmpdir(), `test-output-ntlm-${Date.now()}.json`);
+    try {
+      await writeJsonOutputFile(tmpFile, makeJsonSampleData(), {
+        includeSecrets: true,
+        hashType: 'ntlm',
+      });
+      const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
+      expect(content[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }

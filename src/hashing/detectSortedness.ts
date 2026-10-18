@@ -7,6 +7,7 @@ import {
   SMALL_FILE_BYTES_THRESHOLD,
 } from '../constants.js';
 import type { SortednessVerdict } from '../types.js';
+import { parseEnvInt } from '../memory/parseEnvInt.js';
 import { checkIndexHeader, decodeIndexHeader, hashTypeCodeFor } from '../io/indexHeader.js';
 import {
   assertNonOverlapInvariant,
@@ -25,7 +26,9 @@ const HEAD_TAIL_WINDOW_BYTES = 100 * 80;
  *
  * Order of checks (each gate must not run before the previous one):
  * 1. Skip gate: `fileSize < SMALL_FILE_BYTES_THRESHOLD` → `skipped` — no
- *    corpus reads and no `.idx` consultation at all (FR-011, D2).
+ *    corpus reads and no `.idx` consultation at all (FR-011, D2). The
+ *    threshold defaults to {@link SMALL_FILE_BYTES_THRESHOLD} and may be
+ *    overridden with the `SMALL_FILE_BYTES_THRESHOLD` environment variable.
  * 2. Cache gate: a fresh V3 `.idx` header (strictly newer mtime, version
  *    `IDX_VERSION_V3`, matching hash type and file size) is trusted for its
  *    sorted flag; any stale/V2/legacy/truncated header falls through to the
@@ -40,7 +43,8 @@ const HEAD_TAIL_WINDOW_BYTES = 100 * 80;
  * @param filePath - Path to the HIBP hashes file.
  * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
  *   Defaults to 40 (SHA-1).
- * @returns `sorted`, `unsorted`, or `skipped` (below the 1 GiB threshold).
+ * @returns `sorted`, `unsorted`, or `skipped` (below the resolved threshold,
+ *   which defaults to 1 GiB).
  * @throws {Error} On the non-overlap invariant violation or I/O failures —
  *   explicit failures, never silent passes (FR-012).
  * @security Reads password hashes from the corpus; no hash values are ever
@@ -54,7 +58,15 @@ export async function detectSortedness(
   const fileSize = stat.size;
 
   // Gate 1 — skip gate: before any .idx stat/open or corpus read (D2, FR-011).
-  if (fileSize < SMALL_FILE_BYTES_THRESHOLD) return 'skipped';
+  // The 1 GiB default is overridable via SMALL_FILE_BYTES_THRESHOLD (advanced:
+  // lowers the size at which the live check runs — never skips it).
+  const threshold = parseEnvInt(
+    'SMALL_FILE_BYTES_THRESHOLD',
+    0,
+    Number.MAX_SAFE_INTEGER,
+    SMALL_FILE_BYTES_THRESHOLD,
+  );
+  if (fileSize < threshold) return 'skipped';
 
   // Gate 2 — V3 cache consult: the 19-byte header is read as a whole, so the
   // version/hash-type/size checks cost no extra I/O (D5).

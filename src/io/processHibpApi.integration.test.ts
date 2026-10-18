@@ -30,10 +30,14 @@ function createMockHibpServer(
   options?: { failFirst?: number; holdOpenMs?: number },
 ) {
   let requestCount = 0;
+  // Raw request targets, captured so tests can assert the corpus selector query.
+  const rawUrls: string[] = [];
   const server = http.createServer((req, res) => {
     requestCount += 1;
     const url = req.url ?? '';
-    const prefix = url.replace('/', '');
+    rawUrls.push(url);
+    // Strip the query string (e.g. `?mode=ntlm`) so only the path prefix is matched.
+    const prefix = url.replace('/', '').split('?')[0];
 
     if (options?.failFirst && requestCount <= options.failFirst) {
       res.writeHead(500);
@@ -65,7 +69,7 @@ function createMockHibpServer(
     res.end(lines.join('\n'));
   });
 
-  return new Promise<{ url: string; close: () => Promise<void> }>((resolve) => {
+  return new Promise<{ url: string; close: () => Promise<void>; rawUrls: string[] }>((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       if (!addr || typeof addr === 'string') {
@@ -73,6 +77,7 @@ function createMockHibpServer(
       }
       resolve({
         url: `http://127.0.0.1:${addr.port}/`,
+        rawUrls,
         close: () => new Promise<void>((res, rej) => {
           server.close((err) => (err ? rej(err) : res()));
         }),
@@ -81,8 +86,10 @@ function createMockHibpServer(
   });
 }
 
+type MockHibpServer = Awaited<ReturnType<typeof createMockHibpServer>>;
+
 describe('processHibpApi — integration with real HTTP', () => {
-  let server: { url: string; close: () => Promise<void> } | undefined;
+  let server: MockHibpServer | undefined;
 
   afterEach(async () => {
     await server?.close();
@@ -175,10 +182,26 @@ describe('processHibpApi — integration with real HTTP', () => {
     expect(logs.some((l) => l.includes('Cloudflare cache'))).toBe(true);
     expect(logs.some((l) => l.includes('miss: 1'))).toBe(true);
   });
+
+  it('requests the default corpus for SHA-1 (no mode query)', async () => {
+    const hashToCount = new Map<string, number>();
+    hashToCount.set(sha1('sha1corpuspw'), 11);
+
+    server = await createMockHibpServer(hashToCount);
+
+    const input: Array<PasswordObjectWithHash> = [{ hash: sha1('sha1corpuspw'), passwordObject: { login_password: 'sha1corpuspw' } }];
+    const hashesMap = convertArrayToMap(input);
+
+    const results = await processHibpApi(hashesMap, server.url);
+
+    expect(results).toHaveLength(1);
+    expect(server.rawUrls).toHaveLength(1);
+    expect(server.rawUrls[0]).not.toContain('mode=ntlm');
+  });
 });
 
 describe('processHibpApi — NTLM mode integration with real HTTP', () => {
-  let server: { url: string; close: () => Promise<void> } | undefined;
+  let server: MockHibpServer | undefined;
 
   afterEach(async () => {
     await server?.close();
@@ -227,5 +250,12 @@ describe('processHibpApi — NTLM mode integration with real HTTP', () => {
     });
     // The safe password produces no match.
     expect(byHash.has(ntlm(safePassword))).toBe(false);
+
+    // Every request must opt into the NTLM corpus; without `?mode=ntlm` the
+    // endpoint would serve SHA-1 data and silently return zero NTLM matches.
+    expect(server.rawUrls.length).toBeGreaterThan(0);
+    server.rawUrls.forEach((url) => {
+      expect(url).toContain('mode=ntlm');
+    });
   });
 });

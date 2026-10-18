@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { Readable } from 'stream';
 
 import { vi } from 'vitest';
@@ -9,10 +8,11 @@ import { checkPasswordsLeaks } from '../src/checkPasswordsLeaks.js';
 import * as determineOptimalChunkCountModule from '../src/memory/determineOptimalChunkCount.js';
 import { generateEncryptedExport } from '../src/crypto/generateEncryptedExport.js';
 import type { ConfigInterface } from '../src/types.js';
-import { SMALL_FILE_BYTES_THRESHOLD } from '../src/constants.js';
 import { FIXTURES_DIR } from './helpers/fixturesDir.js';
 import { sha1 } from './helpers/sha1.js';
+import { ntlm } from './helpers/ntlm.js';
 import { writeLargeSha1Corpus } from './helpers/largeCorpus.js';
+import { makeTestDir, makeTestFilePath } from './helpers/testTmp.js';
 
 vi.hoisted(() => {
   process.env.UV_THREADPOOL_SIZE = '42';
@@ -27,19 +27,44 @@ const makeConfig = (overrides: Partial<ConfigInterface> = {}): ConfigInterface =
   singleFileReadMode: 'auto',
   buildIndex: false,
   includeSecrets: true,
-  outputs: [{ format: 'json', path: path.join(import.meta.dirname, '__output__', `test_${Date.now()}.json`) }],
+  outputs: [{ format: 'json', path: makeTestFilePath(`test_${Date.now()}.json`) }],
   ...overrides,
 });
 
+/**
+ * Directories created by {@link makeTmpDir}, cleaned up once after the file
+ * finishes so that large synthetic corpora never leak on disk (a timed-out
+ * test would otherwise skip its own `finally` cleanup).
+ */
+const createdTmpDirs: string[] = [];
+
+// A corpus above the (overridden) sortedness threshold is required to build an
+// `.idx`; 96 KiB clears the 80 KiB non-overlap floor.
+const SMALL_CORPUS_BYTES = 96 * 1024;
+const SMALL_FILE_THRESHOLD_ENV = '65536';
+
+/**
+ * Create a unique temporary directory for a test.
+ *
+ * @returns Absolute path to the newly created directory.
+ */
 function makeTmpDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-int-'));
+  const dir = makeTestDir('wf-int-');
+  createdTmpDirs.push(dir);
   return dir;
 }
 
+afterAll(() => {
+  createdTmpDirs.forEach((dir) => {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+  createdTmpDirs.length = 0;
+});
+
 describe('checkPasswordsLeaks integration', () => {
   it('runs the full pipeline with CSV input and multiple outputs', async () => {
-    const jsonPath = path.join(import.meta.dirname, '__output__', `csv-pipeline-${Date.now()}.json`);
-    const csvPath = path.join(import.meta.dirname, '__output__', `csv-pipeline-${Date.now()}.csv`);
+    const jsonPath = makeTestFilePath(`csv-pipeline-${Date.now()}.json`);
+    const csvPath = makeTestFilePath(`csv-pipeline-${Date.now()}.csv`);
     const cfg: ConfigInterface = {
       inputPath: path.join(fixturesDir, 'sample.csv'),
 
@@ -79,8 +104,8 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs the full pipeline with JSON input and multiple outputs', async () => {
-    const jsonPath = path.join(import.meta.dirname, '__output__', `json-pipeline-${Date.now()}.json`);
-    const csvPath = path.join(import.meta.dirname, '__output__', `json-pipeline-${Date.now()}.csv`);
+    const jsonPath = makeTestFilePath(`json-pipeline-${Date.now()}.json`);
+    const csvPath = makeTestFilePath(`json-pipeline-${Date.now()}.csv`);
     const cfg: ConfigInterface = {
       inputPath: path.join(fixturesDir, 'sample.json'),
 
@@ -143,7 +168,7 @@ describe('checkPasswordsLeaks integration', () => {
       { kdfType: 0, iterations: 1000, salt: Buffer.alloc(16, 0) },
     );
     const modified = encrypted.replace('"passwordProtected":true', '"passwordProtected":false');
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-accrestricted-'));
+    const tmpDir = makeTestDir('e2e-accrestricted-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
     fs.writeFileSync(inputPath, modified, 'utf-8');
 
@@ -165,7 +190,7 @@ describe('checkPasswordsLeaks integration', () => {
       'test-password',
       { kdfType: 0, iterations: 1000, salt: Buffer.alloc(16, 0) },
     );
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-nopw-'));
+    const tmpDir = makeTestDir('e2e-nopw-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
     fs.writeFileSync(inputPath, encrypted, 'utf-8');
 
@@ -194,7 +219,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('rejects input with no matching hashes', async () => {
-    const outputPath = path.join(import.meta.dirname, '__output__', `no-matches-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`no-matches-${Date.now()}.json`);
     const cfg = makeConfig({
       hashesOfLeaksPath: path.join(fixturesDir, 'empty-hashes.txt'),
       outputs: [{ format: 'json', path: outputPath }],
@@ -226,7 +251,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('sorts ascending input data in descending order', async () => {
-    const outputPath = path.join(import.meta.dirname, '__output__', `sort-ascending-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`sort-ascending-${Date.now()}.json`);
     const cfg = makeConfig({
       hashesOfLeaksPath: path.join(fixturesDir, 'ascending-leak-hashes.txt'),
       outputs: [{ format: 'json', path: outputPath }],
@@ -246,7 +271,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('sorts by leaks descending including equal values', async () => {
-    const outputPath = path.join(import.meta.dirname, '__output__', `sort-same-leaks-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`sort-same-leaks-${Date.now()}.json`);
     const cfg = makeConfig({
       hashesOfLeaksPath: path.join(fixturesDir, 'same-leak-hashes.txt'),
       outputs: [{ format: 'json', path: outputPath }],
@@ -268,8 +293,8 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs full pipeline with split hash directory and CSV input', async () => {
-    const jsonPath = path.join(import.meta.dirname, '__output__', `split-csv-${Date.now()}.json`);
-    const csvPath = path.join(import.meta.dirname, '__output__', `split-csv-${Date.now()}.csv`);
+    const jsonPath = makeTestFilePath(`split-csv-${Date.now()}.json`);
+    const csvPath = makeTestFilePath(`split-csv-${Date.now()}.csv`);
     const cfg: ConfigInterface = {
       inputPath: path.join(fixturesDir, 'sample.csv'),
 
@@ -309,8 +334,8 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs full pipeline with split hash directory and JSON input', async () => {
-    const jsonPath = path.join(import.meta.dirname, '__output__', `split-json-${Date.now()}.json`);
-    const csvPath = path.join(import.meta.dirname, '__output__', `split-json-${Date.now()}.csv`);
+    const jsonPath = makeTestFilePath(`split-json-${Date.now()}.json`);
+    const csvPath = makeTestFilePath(`split-json-${Date.now()}.csv`);
     const cfg: ConfigInterface = {
       inputPath: path.join(fixturesDir, 'sample.json'),
 
@@ -362,7 +387,7 @@ describe('checkPasswordsLeaks integration', () => {
         seekTimeMs: 0.05,
       });
 
-    const outputPath = path.join(import.meta.dirname, '__output__', `multi-chunk-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`multi-chunk-${Date.now()}.json`);
     const cfg = makeConfig({
       outputs: [{ format: 'json', path: outputPath }],
     });
@@ -381,7 +406,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs full pipeline via HIBP API with CSV input', { timeout: 30000, skip: process.env.CI === 'true' }, async () => {
-    const jsonPath = path.join(import.meta.dirname, '__output__', `hibp-${Date.now()}.json`);
+    const jsonPath = makeTestFilePath(`hibp-${Date.now()}.json`);
     const cfg: ConfigInterface = {
       inputPath: path.join(fixturesDir, 'sample.csv'),
 
@@ -410,8 +435,8 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs full pipeline with dynamically created input and hash files', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-dynamic-'));
-    const outputPath = path.join(import.meta.dirname, '__output__', `e2e-dynamic-${Date.now()}.json`);
+    const tmpDir = makeTestDir('e2e-dynamic-');
+    const outputPath = makeTestFilePath(`e2e-dynamic-${Date.now()}.json`);
     const csvPath = path.join(tmpDir, 'input.csv');
     const hashPath = path.join(tmpDir, 'hashes.txt');
 
@@ -501,8 +526,8 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs full pipeline with malformed hash file (invalid lines skipped)', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-malformed-'));
-    const outputPath = path.join(import.meta.dirname, '__output__', `e2e-malformed-${Date.now()}.json`);
+    const tmpDir = makeTestDir('e2e-malformed-');
+    const outputPath = makeTestFilePath(`e2e-malformed-${Date.now()}.json`);
     const csvPath = path.join(tmpDir, 'input.csv');
     const hashPath = path.join(tmpDir, 'hashes.txt');
 
@@ -581,8 +606,8 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('runs full pipeline with duplicate passwords in input', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-dup-'));
-    const outputPath = path.join(import.meta.dirname, '__output__', `e2e-dup-${Date.now()}.json`);
+    const tmpDir = makeTestDir('e2e-dup-');
+    const outputPath = makeTestFilePath(`e2e-dup-${Date.now()}.json`);
     const csvPath = path.join(tmpDir, 'input.csv');
     const hashPath = path.join(tmpDir, 'hashes.txt');
 
@@ -631,7 +656,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('throws for empty (headers-only) CSV input (no password rows)', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-empty-'));
+    const tmpDir = makeTestDir('e2e-empty-');
     const csvPath = path.join(tmpDir, 'input.csv');
     const hashPath = path.join(tmpDir, 'hashes.txt');
 
@@ -785,7 +810,7 @@ describe('checkPasswordsLeaks integration', () => {
     vaultItems,
     hashEntries,
   }) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-encrypted-'));
+    const tmpDir = makeTestDir('e2e-encrypted-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
     const outputPath = path.join(tmpDir, 'output.json');
 
@@ -884,7 +909,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('cleans up sensitive data after pipeline completion', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-cleanup-'));
+    const tmpDir = makeTestDir('e2e-cleanup-');
     const outputPath = path.join(tmpDir, 'output.json');
 
     try {
@@ -901,7 +926,7 @@ describe('checkPasswordsLeaks integration', () => {
   });
 
   it('NTLM run reports hash type in summary and per-record outputs', async () => {
-    const outputPath = path.join(import.meta.dirname, '__output__', `ntlm-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`ntlm-${Date.now()}.json`);
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
       await checkPasswordsLeaks(makeConfig({
@@ -919,6 +944,60 @@ describe('checkPasswordsLeaks integration', () => {
     } finally {
       writeSpy.mockRestore();
       try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('auto-detects NTLM and matches a BOM-prefixed single-file corpus end to end', async () => {
+    const tmpDir = makeTestDir('e2e-bom-ntlm-');
+    const outputPath = makeTestFilePath(`e2e-bom-ntlm-${Date.now()}.json`);
+    const csvPath = path.join(tmpDir, 'input.csv');
+    const hashPath = path.join(tmpDir, 'hashes.txt');
+
+    const matchHash = ntlm('password123');
+    const bom = Buffer.from([
+      0xef,
+      0xbb,
+      0xbf,
+    ]);
+    fs.writeFileSync(
+      hashPath,
+      Buffer.concat([
+        bom,
+        Buffer.from(`${matchHash}:12345\n`, 'ascii'),
+        Buffer.from(`${'0'.repeat(32)}:0\n`, 'ascii'),
+      ]),
+    );
+
+    fs.writeFileSync(
+      csvPath,
+      'login_password,login_username,name,folder\n'
+      + 'password123,u1,Site A,Work\n'
+      + 'nope-not-leaked,u2,Site B,Personal\n',
+      'utf-8',
+    );
+
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await checkPasswordsLeaks(makeConfig({
+        inputPath: csvPath,
+        hashesOfLeaksPath: hashPath,
+        hashType: 'auto',
+        outputs: [{ format: 'json', path: outputPath }],
+      }));
+
+      const printed = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(printed).toContain('Hash type: ntlm (detected)');
+
+      const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+      expect(output).toHaveLength(1);
+      expect(output[0].hash).toBe(matchHash);
+      expect(output[0].leaks).toBe(12345);
+      expect(output[0].passwordObjects[0].login_password).toBe('password123');
+      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+    } finally {
+      writeSpy.mockRestore();
+      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
+      try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
     }
   });
 
@@ -940,6 +1019,7 @@ describe('checkPasswordsLeaks integration', () => {
 
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
+    const dryRunOutDir = makeTmpDir();
     try {
       await reloadedCheck(
         {
@@ -949,7 +1029,7 @@ describe('checkPasswordsLeaks integration', () => {
           singleFileReadMode: 'auto',
           buildIndex: false,
           includeSecrets: true,
-          outputs: [{ format: 'json', path: '/tmp/hibp-dryrun.json' }],
+          outputs: [{ format: 'json', path: path.join(dryRunOutDir, 'hibp-dryrun.json') }],
         },
         { dryRun: true },
       );
@@ -982,9 +1062,9 @@ describe('checkPasswordsLeaks integration', () => {
   it('build index then scan — full pipeline', { timeout: 180000 }, async () => {
     const outDir = makeTmpDir();
     const hashFile = path.join(outDir, 'hashes.txt');
-    // A `.idx` is only built for verified-sorted input, which requires a
-    // corpus at or above the 1 GiB sortedness threshold.
-    writeLargeSha1Corpus(hashFile, SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024, []);
+    // A `.idx` is only built for verified-sorted input, so the corpus is kept
+    // above the overridden threshold to run the live sortedness check.
+    writeLargeSha1Corpus(hashFile, SMALL_CORPUS_BYTES, [256]);
 
     const csvPath = path.join(outDir, 'input.csv');
     const csvLines = ['login_uri,login_username,login_password,name', 'https://example.com,user1,password1,Test1'];
@@ -1001,7 +1081,14 @@ describe('checkPasswordsLeaks integration', () => {
       outputs: [{ format: 'json', path: outputPath }],
     };
 
-    await checkPasswordsLeaks(cfg);
+    const savedThreshold = process.env.SMALL_FILE_BYTES_THRESHOLD;
+    process.env.SMALL_FILE_BYTES_THRESHOLD = SMALL_FILE_THRESHOLD_ENV;
+    try {
+      await checkPasswordsLeaks(cfg);
+    } finally {
+      if (savedThreshold === undefined) delete process.env.SMALL_FILE_BYTES_THRESHOLD;
+      else process.env.SMALL_FILE_BYTES_THRESHOLD = savedThreshold;
+    }
 
     const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
     expect(Array.isArray(output)).toBe(true);
@@ -1197,7 +1284,7 @@ describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)'
     stubSha1Api();
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const outputPath = path.join(import.meta.dirname, '__output__', `api-auto-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`api-auto-${Date.now()}.json`);
     try {
       await checkPasswordsLeaks(makeConfig({
         hashesOfLeaksPath: '',
@@ -1219,8 +1306,8 @@ describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)'
   });
 
   it('warn mode self-corrects, surfaces the override, and matches an explicit sha1 run (FR-007/SC-007)', async () => {
-    const correctedPath = path.join(import.meta.dirname, '__output__', `mismatch-warn-${Date.now()}.json`);
-    const explicitPath = path.join(import.meta.dirname, '__output__', `mismatch-explicit-${Date.now()}.json`);
+    const correctedPath = makeTestFilePath(`mismatch-warn-${Date.now()}.json`);
+    const explicitPath = makeTestFilePath(`mismatch-explicit-${Date.now()}.json`);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
@@ -1265,6 +1352,75 @@ describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)'
       const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(out).not.toContain('Scanning file');
     } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  function stubNtlmApi(): { rawUrls: string[] } {
+    const lines = fs.readFileSync(
+      path.join(fixturesDir, 'ntlm-hashes.txt'),
+      'utf-8',
+    ).trim().split('\n');
+    const counts = new Map<string, number>();
+    lines.forEach((line) => {
+      const [fullHash, count] = line.split(':');
+      counts.set(fullHash, Number(count));
+    });
+    const rawUrls: string[] = [];
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      rawUrls.push(url);
+      // Only the NTLM corpus carries the mode query; without it the endpoint
+      // serves SHA-1 data, so this stub deliberately returns nothing then.
+      const [prefix, query] = (url.split('/').pop() ?? '').split('?');
+      const out: string[] = [];
+      if (query === 'mode=ntlm') {
+        counts.forEach((count, fullHash) => {
+          if (fullHash.startsWith(prefix)) out.push(`${fullHash.slice(5)}:${count}`);
+        });
+      }
+      return {
+        ok: true,
+        headers: { get: () => 'MISS' },
+        arrayBuffer: () => Promise.resolve(Buffer.from(out.join('\n'), 'ascii')),
+      };
+    }) as unknown as typeof global.fetch;
+    return { rawUrls };
+  }
+
+  it('end-to-end NTLM API run requests the NTLM corpus and matches its hashes (SC-003)', async () => {
+    const api = stubNtlmApi();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const outputPath = makeTestFilePath(`api-ntlm-${Date.now()}.json`);
+    try {
+      await checkPasswordsLeaks(makeConfig({
+        inputPath: path.join(fixturesDir, 'ntlm-vault.json'),
+        hashesOfLeaksPath: '',
+        useHibpApi: true,
+        hashType: 'ntlm',
+        outputs: [{ format: 'json', path: outputPath }],
+      }));
+
+      const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+      expect(output).toHaveLength(4);
+      const byHash = new Map(
+        output.map((r: { hash: string; leaks: number }) => [r.hash, r.leaks]),
+      );
+      expect(byHash.get(ntlm('password'))).toBe(99999);
+      expect(byHash.get(ntlm('123456'))).toBe(37281043);
+      expect(byHash.get(ntlm('letmein'))).toBe(250000);
+      expect(byHash.get(ntlm('password123'))).toBe(1000);
+      output.forEach((r: { passwordObjects: Array<{ login_password_hash_type: string }> }) => {
+        expect(r.passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      });
+
+      // Without `?mode=ntlm` the buggy code would hit the SHA-1 corpus and
+      // silently report zero leaks; this guards that regression end to end.
+      expect(api.rawUrls.length).toBeGreaterThan(0);
+      api.rawUrls.forEach((u) => expect(u).toContain('mode=ntlm'));
+    } finally {
+      try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
     }

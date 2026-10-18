@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 
 import {
   describe, it, expect, vi,
@@ -8,6 +7,9 @@ import {
 
 import { binarySearchReader, findColon, cacheConfig } from './binarySearch';
 import { FIXTURES_DIR } from '../../../tests/helpers/fixturesDir.js';
+import { ntlm } from '../../../tests/helpers/ntlm.js';
+import { makeSortedCorpus } from '../../../tests/helpers/hashCases.js';
+import { makeTestFilePath } from '../../../tests/helpers/testTmp.js';
 
 vi.mock('../../memory/getAvailableMemBytes.js', () => ({ getAvailableMemBytes: () => 500 * 1024 }));
 
@@ -90,7 +92,7 @@ describe('binarySearchReader', () => {
     }
     lines.sort();
     const content = `${lines.join('\n')}\n`;
-    const tmpFile = path.join(os.tmpdir(), `test-cache-eviction-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-cache-eviction-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
 
     try {
@@ -142,7 +144,7 @@ describe('binarySearchReader', () => {
 
   it('handles \\r\\n line endings', async () => {
     const content = 'A000000000000000000000000000000000000000:1\r\nB000000000000000000000000000000000000000:2\r\n';
-    const tmpFile = path.join(os.tmpdir(), `test-crlf-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-crlf-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
 
     try {
@@ -162,7 +164,7 @@ describe('binarySearchReader', () => {
       lines.push(`${prefix + '0'.repeat(39)}:${i + 1}`);
     }
     const content = lines.join('\r');
-    const tmpFile = path.join(os.tmpdir(), `test-cr-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-cr-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
 
     try {
@@ -188,7 +190,7 @@ describe('binarySearchReader', () => {
     ];
     lines.sort();
     const content = `${lines.join('\n')}\n`;
-    const tmpFile = path.join(os.tmpdir(), `test-longline-fwd-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-longline-fwd-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
 
     try {
@@ -227,7 +229,7 @@ describe('binarySearchReader', () => {
 
   it('buffer shorter than SHA1_HEX_LENGTH advances state.high (covers line 168)', async () => {
     const content = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
-    const tmpFile = path.join(os.tmpdir(), `test-short-buf-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-short-buf-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
     try {
       const hash = 'A000000000000000000000000000000000000000';
@@ -244,7 +246,7 @@ describe('binarySearchReader', () => {
     const hashF = `F${'0'.repeat(39)}`;
     const pad = 'X'.repeat(200);
     const content = `${hashA}:1\n\n${pad}${hashF}:99\n`;
-    const tmpFile = path.join(os.tmpdir(), `test-consec-nl-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-consec-nl-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
     try {
       const { map, set, pwMap } = makeArgs(hashF);
@@ -260,7 +262,7 @@ describe('binarySearchReader', () => {
     const hashF = `F${'0'.repeat(39)}`;
     const filler = 'X'.repeat(255);
     const content = `${hashA}:1\n${filler}\n${hashF}:99\n`;
-    const tmpFile = path.join(os.tmpdir(), `test-long-before-nl-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-long-before-nl-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
     try {
       const { map, set, pwMap } = makeArgs(hashF);
@@ -276,7 +278,7 @@ describe('binarySearchReader', () => {
     const hashF = `F${'0'.repeat(39)}`;
     const filler = 'X'.repeat(177);
     const content = `${hashA}:1\n${filler}\n${hashF}:99\n`;
-    const tmpFile = path.join(os.tmpdir(), `test-nocolon-range-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-nocolon-range-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
     try {
       const { map, set, pwMap } = makeArgs(hashF);
@@ -296,7 +298,7 @@ describe('binarySearchReader', () => {
     }
     lines.sort();
     const content = `${lines.join('\n')}\n`;
-    const tmpFile = path.join(os.tmpdir(), `test-cache-evict-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`test-cache-evict-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, content);
 
     try {
@@ -322,6 +324,76 @@ describe('binarySearchReader', () => {
     }
   });
 
+  // NOTE: binarySearchReader has a pre-existing limitation: some hashes present
+  // in the file are unreachable for certain file positions (see the 40-char
+  // fixture, where 9/48 hashes are missed when queried together). To isolate the
+  // hash-length threading under test, these cases query the smallest hash in a
+  // small sorted corpus, which the search resolves reliably at any length.
+  it('matches a 32-char NTLM hash when fullHashLength=32', async () => {
+    const target = ntlm('123456');
+    const vectors: Array<[string, number]> = [
+      [target, 37281043],
+      [ntlm('password'), 99999],
+      [ntlm('letmein'), 250000],
+    ];
+    const content = makeSortedCorpus(vectors);
+    const tmpFile = makeTestFilePath(`bs-ntlm-${Date.now()}.txt`);
+    fs.writeFileSync(tmpFile, content, 'ascii');
+
+    const key = Buffer.from(target, 'ascii').readUInt32BE(0);
+    const map = new Map([
+      [
+        key,
+        [
+          {
+            fullHash: target,
+            fullHashBytes: Buffer.from(target, 'ascii').subarray(0, 32),
+          },
+        ],
+      ],
+    ]);
+    const set = new Set([key]);
+    const pwMap = new Map([[target, [{ login_password: '123456' }]]]);
+
+    try {
+      const out = await binarySearchReader(tmpFile, content.length, map, set, 'ascii', pwMap, undefined, undefined, 32);
+      expect(out).toHaveLength(1);
+      expect(out[0].hash).toBe(target);
+      expect(out[0].leaks).toBe(37281043);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it('does not match a 32-char NTLM hash when fullHashLength is not threaded (default 40)', async () => {
+    const target = ntlm('123456');
+    const content = `${target}:37281043\n`;
+    const tmpFile = makeTestFilePath(`bs-ntlm-def-${Date.now()}.txt`);
+    fs.writeFileSync(tmpFile, content, 'ascii');
+
+    const key = Buffer.from(target, 'ascii').readUInt32BE(0);
+    const map = new Map([
+      [
+        key,
+        [
+          {
+            fullHash: target,
+            fullHashBytes: Buffer.from(target, 'ascii').subarray(0, 32),
+          },
+        ],
+      ],
+    ]);
+    const set = new Set([key]);
+    const pwMap = new Map([[target, [{ login_password: '123456' }]]]);
+
+    try {
+      const out = await binarySearchReader(tmpFile, content.length, map, set, 'ascii', pwMap);
+      expect(out).toHaveLength(0);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
   it('triggers cache eviction with low maxEntries', async () => {
     const origMax = cacheConfig.maxEntries;
     try {
@@ -335,7 +407,7 @@ describe('binarySearchReader', () => {
       }
       lines.sort();
       const content = `${lines.join('\n')}\n`;
-      const tmpFile = path.join(os.tmpdir(), `test-cache-low-${Date.now()}.txt`);
+      const tmpFile = makeTestFilePath(`test-cache-low-${Date.now()}.txt`);
       fs.writeFileSync(tmpFile, content);
 
       try {

@@ -1,6 +1,7 @@
 import { convertArrayToMap } from './convertArrayToMap.js';
 import { buildHashLookupMap } from './buildLookupMap.js';
 import type { PasswordObjectWithHash, PasswordObject } from '../types.js';
+import { ntlm } from '../../tests/helpers/ntlm.js';
 
 describe('convertArrayToMap', () => {
   it('converts a single entry to a map', () => {
@@ -45,5 +46,22 @@ describe('buildHashLookupMap', () => {
     const firstKey = Array.from(map.keys())[0];
     const inner = map.get(firstKey);
     expect(inner?.length).toBe(2);
+  });
+
+  it('truncates fullHashBytes to 32 bytes for NTLM', () => {
+    const hash = ntlm('password123');
+    const input = new Map<string, PasswordObject[]>([[hash, [{ login_password: 'password123' }]]]);
+    const { map } = buildHashLookupMap(input, 32);
+    const entries = Array.from(map.values())[0];
+    expect(entries[0].fullHashBytes).toHaveLength(32);
+    expect(entries[0].fullHash).toBe(hash);
+  });
+
+  it('keeps fullHashBytes at 40 bytes by default (SHA-1)', () => {
+    const hash = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
+    const input = new Map<string, PasswordObject[]>([[hash, [{ login_password: 'pass1' }]]]);
+    const { map } = buildHashLookupMap(input);
+    const entries = Array.from(map.values())[0];
+    expect(entries[0].fullHashBytes).toHaveLength(40);
   });
 });

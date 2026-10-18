@@ -95,6 +95,7 @@ All configuration is via environment variables (`.env` file). See [Configuration
 | `INDEX_READER_CONCURRENCY` | auto | 1 -- 1024 | Max concurrent random reads when using the `index` read mode. |
 | `UV_THREADPOOL_SIZE` | CPU count | — | Automatically set to `os.availableParallelism()` if not already present. |
 | `SPEED_TEST_MIN_BYTES` | 1073741824 (1 GB) | any integer (bytes) | File size threshold below which the drive speed test is skipped and a single chunk is used. |
+| `SMALL_FILE_BYTES_THRESHOLD` | 1073741824 (1 GiB) | any integer (bytes) | Corpus size below which the sortedness check is skipped (verdict `skipped`). Advanced: lowering it makes the live check run on smaller corpora; it never skips earlier than the value. |
 
 **Auto-detection note:** The chunk count, HIBP concurrency, and split-file concurrency all auto-scale based on available CPU cores, free memory, and measured disk speed. You generally do not need to set them manually.
 

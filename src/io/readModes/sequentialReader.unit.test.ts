@@ -1,6 +1,4 @@
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import v8 from 'v8';
 
 import {
@@ -12,8 +10,11 @@ import type { PasswordObject } from '../../types.js';
 import { IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_SORTED_FLAG_OK } from '../../constants.js';
 import { buildHashLookupMap } from '../../hashing/buildLookupMap.js';
 import { sequentialReader } from './sequential.js';
+import { ntlm } from '../../../tests/helpers/ntlm.js';
+import { makeTestFilePath } from '../../../tests/helpers/testTmp.js';
 
 const workers: unknown[] = [];
+const workerDataList: Array<Record<string, unknown>> = [];
 const messageHandlers: Array<(msg: Record<string, unknown>) => void> = [];
 const errorHandlerHandlers: Array<(err: Error) => void> = [];
 const exitHandlerHandlers: Array<(code: number) => void> = [];
@@ -28,8 +29,9 @@ vi.mock('worker_threads', () => {
 
     terminate = vi.fn();
 
-    constructor() {
+    constructor(_path: string, options?: { workerData?: Record<string, unknown> }) {
       workers.push(this);
+      workerDataList.push(options?.workerData ?? {});
     }
   };
   return { Worker: MockWorker, isMainThread: true, parentPort: null };
@@ -54,6 +56,7 @@ function readOffset(buf: Buffer, idx: number): bigint {
 describe('sequentialReader coverage gaps', () => {
   beforeEach(() => {
     workers.length = 0;
+    workerDataList.length = 0;
     messageHandlers.length = 0;
     errorHandlerHandlers.length = 0;
     exitHandlerHandlers.length = 0;
@@ -387,7 +390,7 @@ describe('sequentialReader coverage gaps', () => {
   });
 
   it('single chunk with null fingerprints covers cond-expr false branch (line 156)', async () => {
-    const tmpFile = path.join(os.tmpdir(), `sr-nullfp-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`sr-nullfp-${Date.now()}.txt`);
     const content = 'AAAAAAAAAA000000000000000000000000000000:100\n';
     fs.writeFileSync(tmpFile, content, 'ascii');
 
@@ -460,7 +463,7 @@ describe('sequentialReader coverage gaps', () => {
   });
 
   it('single chunk with buildIndex triggers recordBoundary (line 147, parseBuffer line 87)', async () => {
-    const tmpFile = path.join(os.tmpdir(), `sr-single-${Date.now()}.txt`);
+    const tmpFile = makeTestFilePath(`sr-single-${Date.now()}.txt`);
     const hashes = new Map<string, PasswordObject[]>();
     hashes.set('00000AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', [{ login_password: 'pass' }]);
     hashes.set('00001BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', [{ login_password: 'pass2' }]);
@@ -676,5 +679,76 @@ describe('sequentialReader coverage gaps', () => {
 
     expect((workers[0] as { terminate: ReturnType<typeof vi.fn> }).terminate).toHaveBeenCalled();
     expect((workers[1] as { terminate: ReturnType<typeof vi.fn> }).terminate).toHaveBeenCalled();
+  });
+
+  it('single-chunk NTLM file matches when fullHashLength=32', async () => {
+    const fullHash = ntlm('password123');
+    expect(fullHash).toHaveLength(32);
+    const content = `${fullHash}:4321\n`;
+    const tmpFile = makeTestFilePath(`sr-ntlm-${Date.now()}.txt`);
+    fs.writeFileSync(tmpFile, content, 'ascii');
+
+    const hashes = new Map<string, PasswordObject[]>();
+    hashes.set(fullHash, [{ login_password: 'password123' }]);
+    const { map: hashLookupMap } = buildHashLookupMap(hashes, 32);
+
+    try {
+      const result = await sequentialReader(
+        tmpFile,
+        content.length,
+        1,
+        hashLookupMap,
+        Buffer.alloc(0),
+        null,
+        'ascii',
+        hashes,
+        undefined,
+        undefined,
+        false,
+        true,
+        undefined,
+        32,
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].hash).toBe(fullHash);
+      expect(result[0].leaks).toBe(4321);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* ok */ }
+    }
+  });
+
+  it('threads fullHashLength=32 into each worker when multi-chunk NTLM', async () => {
+    const fullHash = ntlm('password123');
+    const hashes = new Map<string, PasswordObject[]>();
+    hashes.set(fullHash, [{ login_password: 'password123' }]);
+
+    const resultPromise = sequentialReader(
+      '/fake/file.txt',
+      1000,
+      2,
+      new Map(),
+      Buffer.alloc(0),
+      Buffer.alloc(0),
+      'ascii',
+      hashes,
+      undefined,
+      undefined,
+      false,
+      true,
+      undefined,
+      32,
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(workerDataList).toHaveLength(2);
+    workerDataList.forEach((wd) => {
+      expect(wd.fullHashLength).toBe(32);
+    });
+
+    messageHandlers[0]({ type: 'result', data: makeResult({ bytesProcessed: 500 }) });
+    messageHandlers[1]({ type: 'result', data: makeResult({ bytesProcessed: 500 }) });
+    await resultPromise;
   });
 });

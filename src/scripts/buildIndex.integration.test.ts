@@ -1,7 +1,6 @@
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { promisify } from 'util';
 
 import {
@@ -17,13 +16,21 @@ import {
   IDX_VERSION_V3,
   SMALL_FILE_BYTES_THRESHOLD,
 } from '../constants.js';
+import { makeTestDir } from '../../tests/helpers/testTmp.js';
 
 const execFileAsync = promisify(execFile);
 
-const GIB = 1024 * 1024 * 1024;
+/**
+ * Corpus size in bytes: 96 KiB.
+ *
+ * The production 1 GiB sortedness threshold is overridden to 64 KiB via the
+ * child-process environment, so a tiny corpus exercises the same live check.
+ * 96 KiB stays above the 80 KiB non-overlap floor (20 regions x 4096 B).
+ */
+const SMALL_CORPUS_BYTES = 96 * 1024;
 
-/** ~1.07 GiB — comfortably above the 1 GiB sortedness threshold. */
-const LARGE_CORPUS_BYTES = Math.ceil((1.07 * GIB) / 43) * 43;
+/** Sortedness skip threshold (bytes) used for the child-process corpus. */
+const CHILD_THRESHOLD = '65536';
 
 const REPEAT_CHUNK_BYTES = 16 * 1024 * 1024;
 
@@ -47,6 +54,43 @@ async function writeRepeatedCorpus(
     let written = 0;
     while (written < totalBytes) {
       const n = Math.min(chunk.length, totalBytes - written);
+      // eslint-disable-next-line no-await-in-loop
+      await fd.write(chunk, 0, n);
+      written += n;
+    }
+  } finally {
+    await fd.close();
+  }
+}
+
+/** UTF-8 byte-order mark bytes. */
+const UTF8_BOM = Buffer.from([
+  0xef,
+  0xbb,
+  0xbf,
+]);
+
+/**
+ * Write a UTF-8 BOM followed by a corpus of one repeated line.
+ *
+ * @param filePath - Destination path.
+ * @param line - The repeated line (must end with '\n').
+ * @param totalBytes - Exact total corpus size (including the BOM).
+ */
+async function writeBomRepeatedCorpus(
+  filePath: string,
+  line: string,
+  totalBytes: number,
+): Promise<void> {
+  const bodyBytes = totalBytes - UTF8_BOM.length;
+  const copies = Math.ceil(REPEAT_CHUNK_BYTES / line.length);
+  const chunk = Buffer.from(line.repeat(copies), 'ascii');
+  const fd = await fs.promises.open(filePath, 'w');
+  try {
+    await fd.write(UTF8_BOM, 0, UTF8_BOM.length);
+    let written = 0;
+    while (written < bodyBytes) {
+      const n = Math.min(chunk.length, bodyBytes - written);
       // eslint-disable-next-line no-await-in-loop
       await fd.write(chunk, 0, n);
       written += n;
@@ -109,9 +153,13 @@ function writeConfig(dir: string, hashFile: string): void {
  * Run the buildIndex CLI as a child process.
  *
  * @param hashFile - Corpus path argument.
+ * @param extraEnv - Additional environment variables for the child.
  * @returns stdout/stderr on success.
  */
-async function runBuildIndex(hashFile: string): Promise<{ stdout: string; stderr: string }> {
+async function runBuildIndex(
+  hashFile: string,
+  extraEnv: Record<string, string> = {},
+): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync('npx', [
     'tsx',
     'src/scripts/buildIndex.ts',
@@ -120,7 +168,9 @@ async function runBuildIndex(hashFile: string): Promise<{ stdout: string; stderr
     cwd: path.resolve(__dirname, '../..'),
     timeout: 150_000,
     maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, NODE_NO_WARNINGS: '1', HASH_TYPE: 'auto' },
+    env: {
+      ...process.env, NODE_NO_WARNINGS: '1', HASH_TYPE: 'auto', ...extraEnv,
+    },
   });
 }
 
@@ -135,18 +185,21 @@ describe('buildIndex — child process integration', () => {
   });
 
   function makeTmpDir(): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bidx-'));
+    const dir = makeTestDir('bidx-');
     tmpDirs.push(dir);
     return dir;
   }
 
-  it('creates a V3 .idx file for a sorted >= 1 GiB corpus', { timeout: 180_000 }, async () => {
+  it('creates a V3 .idx file for a sorted corpus above the threshold', { timeout: 180_000 }, async () => {
     const dir = makeTmpDir();
     const hashFile = path.join(dir, 'hashes.txt');
-    await writeRepeatedCorpus(hashFile, `${'0'.repeat(40)}:1\n`, LARGE_CORPUS_BYTES);
+    await writeRepeatedCorpus(hashFile, `${'0'.repeat(40)}:1\n`, SMALL_CORPUS_BYTES);
     writeConfig(dir, hashFile);
 
-    const { stdout } = await runBuildIndex(hashFile);
+    const { stdout } = await runBuildIndex(
+      hashFile,
+      { SMALL_FILE_BYTES_THRESHOLD: CHILD_THRESHOLD },
+    );
 
     expect(stdout).toContain('Index built');
     const idxPath = `${hashFile}.idx`;
@@ -158,13 +211,16 @@ describe('buildIndex — child process integration', () => {
     expect(idxBuf[1]).toBe(IDX_VERSION_V3);
   });
 
-  it('builds an NTLM-typed index for a 32-char >= 1 GiB corpus and records the hash type', { timeout: 180_000 }, async () => {
+  it('builds an NTLM-typed index for a 32-char corpus and records the hash type', { timeout: 180_000 }, async () => {
     const dir = makeTmpDir();
     const hashFile = path.join(dir, 'ntlm-hashes.txt');
-    await writeRepeatedCorpus(hashFile, `${'0'.repeat(32)}:1\n`, LARGE_CORPUS_BYTES);
+    await writeRepeatedCorpus(hashFile, `${'0'.repeat(32)}:1\n`, SMALL_CORPUS_BYTES);
     writeConfig(dir, hashFile);
 
-    const { stdout } = await runBuildIndex(hashFile);
+    const { stdout } = await runBuildIndex(
+      hashFile,
+      { SMALL_FILE_BYTES_THRESHOLD: CHILD_THRESHOLD },
+    );
 
     expect(stdout).toContain('Index built');
     const idxPath = `${hashFile}.idx`;
@@ -174,15 +230,37 @@ describe('buildIndex — child process integration', () => {
     expect(idxBuf[2]).toBe(IDX_HASH_TYPE_NTLM);
   });
 
-  it('rejects a >= 1 GiB unsorted (reversed-halves) corpus with a not-sorted error', { timeout: 180_000 }, async () => {
+  it('builds an index for a BOM-prefixed sorted corpus (BI-01 regression)', { timeout: 180_000 }, async () => {
+    const dir = makeTmpDir();
+    const hashFile = path.join(dir, 'bom-hashes.txt');
+    await writeBomRepeatedCorpus(hashFile, `${'0'.repeat(32)}:1\n`, SMALL_CORPUS_BYTES);
+    writeConfig(dir, hashFile);
+
+    const { stdout } = await runBuildIndex(
+      hashFile,
+      { SMALL_FILE_BYTES_THRESHOLD: CHILD_THRESHOLD },
+    );
+
+    expect(stdout).toContain('Index built');
+    expect(stdout).not.toContain('not sorted');
+    const idxPath = `${hashFile}.idx`;
+    expect(fs.existsSync(idxPath)).toBe(true);
+
+    const idxBuf = fs.readFileSync(idxPath);
+    expect(idxBuf.length).toBeGreaterThan(IDX_HEADER_SIZE);
+    expect(idxBuf[1]).toBe(IDX_VERSION_V3);
+    expect(idxBuf[2]).toBe(IDX_HASH_TYPE_NTLM);
+  });
+
+  it('rejects an unsorted (reversed-halves) corpus above the threshold with a not-sorted error', { timeout: 180_000 }, async () => {
     const dir = makeTmpDir();
     const hashFile = path.join(dir, 'unsorted.txt');
-    await writeReversedHalvesCorpus(hashFile, LARGE_CORPUS_BYTES);
+    await writeReversedHalvesCorpus(hashFile, SMALL_CORPUS_BYTES);
     writeConfig(dir, hashFile);
 
     const idxPath = `${hashFile}.idx`;
     try {
-      await runBuildIndex(hashFile);
+      await runBuildIndex(hashFile, { SMALL_FILE_BYTES_THRESHOLD: CHILD_THRESHOLD });
       expect.fail('Expected process to exit with error');
     } catch (err: unknown) {
       const error = err as { stderr?: string; code?: number };

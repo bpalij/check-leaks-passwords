@@ -7,6 +7,7 @@ import { groupHashesByPrefix } from './groupByPrefix.js';
 import { parseBuffer } from './parseBuffer.js';
 import type { PasswordObject } from '../types.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
+import { ntlm } from '../../tests/helpers/ntlm.js';
 
 describe('groupHashesByPrefix', () => {
   it('groups hashes with distinct prefixes into separate top-level entries with correct keys', () => {
@@ -58,6 +59,19 @@ describe('groupHashesByPrefix', () => {
     expect(entry2).toBeDefined();
     expect(entry2!.fullHashBytes).toBeInstanceOf(Buffer);
   });
+
+  it('uses 32-byte fullHashBytes and offset-5 key1 for NTLM hashes', () => {
+    const hash = ntlm('password123');
+    const input = new Map<string, PasswordObject[]>([[hash, [{ login_password: 'password123' }]]]);
+    const result = groupHashesByPrefix(input, 5, 32);
+    const group = result.get(hash.slice(0, 5));
+    expect(group).toBeDefined();
+    const key1 = Buffer.from(hash, 'ascii').readUInt32BE(5);
+    expect(group!.set.has(key1)).toBe(true);
+    const entries = group!.map.get(key1)!;
+    expect(entries[0].fullHashBytes).toHaveLength(32);
+    expect(entries[0].fullHash).toBe(hash);
+  });
 });
 
 describe('groupHashesByPrefix with parseBuffer (integration)', () => {
@@ -86,5 +100,25 @@ describe('groupHashesByPrefix with parseBuffer (integration)', () => {
     const r2 = results.find((r) => r.hash === 'CBFDA12345678901234567890123456789012345');
     expect(r2).toBeDefined();
     expect(r2!.leaks).toBe(999);
+  });
+
+  it('parses a 27-char NTLM suffix using grouped lookup with fullHashLength=32', () => {
+    const hash = ntlm('password123');
+    expect(hash).toHaveLength(32);
+    const hashesWithPasswordObjects = new Map<string, PasswordObject[]>([[hash, [{ login_password: 'password123' }]]]);
+    const grouped = groupHashesByPrefix(hashesWithPasswordObjects, 5, 32);
+    const { map: suffixMap, set: fpSet } = grouped.get(hash.slice(0, 5))!;
+    expect(suffixMap).toBeDefined();
+
+    const suffix = hash.slice(5);
+    expect(suffix).toHaveLength(27);
+    const suffixBuf = Buffer.from(`${suffix}:1000\n`, 'ascii');
+
+    const { stats, results } = parseBuffer(suffixBuf, 27, suffixMap, fpSet, 'ascii', { fullHashLength: 32 });
+    expect(stats.linesProcessed).toBe(1);
+    expect(stats.matchedHashCount).toBe(1);
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe(hash);
+    expect(results[0].leaks).toBe(1000);
   });
 });

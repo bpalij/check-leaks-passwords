@@ -140,7 +140,12 @@ export function parseBuffer(
     linesProcessed += 1;
 
     if (lineEnd - lineStart >= hashLength) {
-      const off = lineStart;
+      let off = lineStart;
+      // Skip UTF-8 BOM if present at the start of this line
+      if (lineEnd - off >= 3
+        && buffer[off] === 0xef && buffer[off + 1] === 0xbb && buffer[off + 2] === 0xbf) {
+        off += 3;
+      }
       // key1: first 4 bytes as a 32-bit integer for fast map lookup.
       // Corpus bytes are case-folded so lower-case hex still hits the
       // uppercase lookup targets (fingerprint key must match too).

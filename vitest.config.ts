@@ -6,6 +6,8 @@ export default defineConfig({
     testTimeout: 15_000,
     fileParallelism: true,
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    setupFiles: ['tests/setup/cleanupTestTmp.ts'],
+    globalSetup: ['tests/setup/globalSetup.ts'],
     coverage: {
       provider: 'v8',
       thresholds: {

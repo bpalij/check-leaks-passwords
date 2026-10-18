@@ -11,7 +11,12 @@ import type {
   HashWithLeaksAndPasswordObjects,
   OnProgress,
 } from '../types.js';
-import { HASH_PREFIX_LENGTH, MAX_HIBP_CONCURRENCY, SHA1_HEX_LENGTH } from '../constants.js';
+import {
+  HASH_PREFIX_LENGTH,
+  MAX_HIBP_CONCURRENCY,
+  NTLM_HEX_LENGTH,
+  SHA1_HEX_LENGTH,
+} from '../constants.js';
 import { groupHashesByPrefix } from '../hashing/groupByPrefix.js';
 import { parseBuffer } from '../hashing/parseBuffer.js';
 import { promisePool } from './promisePool.js';
@@ -72,9 +77,12 @@ export function logHibpApiSummary(
 /**
  * Check passwords against the HIBP Passwords API using k-anonymity.
  *
- * Uses the range API: sends only the 5-character prefix of each SHA-1 hash,
+ * Uses the range API: sends only the 5-character prefix of each hash,
  * receives all hashes with that prefix, and matches locally. This means
  * the actual password hashes are never sent to the server.
+ *
+ * For NTLM (`fullHashLength === 32`) the request opts into the API's NTLM
+ * corpus with `?mode=ntlm`; the endpoint otherwise serves SHA-1 suffixes.
  *
  * Features:
  * - Concurrent requests with configurable parallelism.
@@ -90,6 +98,7 @@ export function logHibpApiSummary(
  * @param fullHashLength - Length of a full hex hash (40 for SHA-1, 32 for NTLM).
  *   Only the 5-character prefix is transmitted; the API suffix length is derived
  *   as `fullHashLength - HASH_PREFIX_LENGTH` (35 for SHA-1, 27 for NTLM).
+ *   A length of 32 additionally selects the API's NTLM corpus (`?mode=ntlm`).
  *   Defaults to 40 (SHA-1).
  * @returns Enriched results with leak counts and password objects.
  *
@@ -105,6 +114,11 @@ export async function processHibpApi(
   fullHashLength: number = SHA1_HEX_LENGTH,
 ): Promise<Array<HashWithLeaksAndPasswordObjects>> {
   const apiSuffixLength = fullHashLength - HASH_PREFIX_LENGTH;
+  // The HIBP range API serves SHA-1 suffixes by default. NTLM suffixes are only
+  // returned when the request opts in via `?mode=ntlm`; without it the endpoint
+  // returns 35-char SHA-1 suffixes, which can never match 27-char NTLM entries
+  // and would silently report every password as safe.
+  const ntlmMode = fullHashLength === NTLM_HEX_LENGTH;
   let prefixSpinner: Ora | undefined;
   if (logger) {
     prefixSpinner = createSpinner('Generating prefix groups and fingerprints...').start();
@@ -157,7 +171,7 @@ export async function processHibpApi(
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       try {
         // eslint-disable-next-line no-await-in-loop
-        const response = await fetch(`${apiUrl}${prefix}`, {
+        const response = await fetch(`${apiUrl}${prefix}${ntlmMode ? '?mode=ntlm' : ''}`, {
           signal: controller.signal,
           headers: {
             'User-Agent': `check-leaks-passwords/${pkg.version}`,

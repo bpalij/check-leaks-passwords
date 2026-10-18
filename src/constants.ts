@@ -18,7 +18,13 @@ export const DRIVE_SPEED_TEST_SIZE = 16 * 1024 * 1024;
 /** MB/s per chunk — used to calculate chunk count from drive speed. */
 export const MBPS_PER_CHUNK = 300;
 
-/** Files smaller than 1 GB skip the drive speed test and use a single chunk. */
+/**
+ * "Small file" cutoff in bytes (1 GiB).
+ *
+ * Files below it skip the drive speed test / use a single chunk, and the
+ * sortedness check returns `skipped`. Overridable at runtime via the
+ * `SMALL_FILE_BYTES_THRESHOLD` environment variable (or `--small-file-threshold`).
+ */
 export const SMALL_FILE_BYTES_THRESHOLD = 1 * 1024 * 1024 * 1024;
 
 /** Overlap in bytes between adjacent chunks to handle cross-boundary lines. */

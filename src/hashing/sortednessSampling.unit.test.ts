@@ -8,6 +8,7 @@ import {
 import {
   assertNonOverlapInvariant,
   checkAlignedWindowSorted,
+  checkBufferSorted,
   computeRegionCount,
   computeSampleOffsets,
 } from './sortednessSampling.js';
@@ -153,5 +154,34 @@ describe('checkAlignedWindowSorted', () => {
 
   it('returns true when the window has no complete line', () => {
     expect(checkAlignedWindowSorted(Buffer.from('no newline here', 'ascii'), 40)).toBe(true);
+  });
+});
+
+describe('checkBufferSorted (UTF-8 BOM tolerance)', () => {
+  const hash = (n: number) => n.toString(16).padStart(40, '0');
+  const BOM = Buffer.from([
+    0xef,
+    0xbb,
+    0xbf,
+  ]);
+
+  it('treats a corpus with a leading UTF-8 BOM as sorted', () => {
+    const body = Buffer.from(`${hash(1)}:1\n${hash(2)}:1\n${hash(3)}:1\n`, 'ascii');
+    expect(checkBufferSorted(Buffer.concat([BOM, body]), 40)).toBe(true);
+  });
+
+  it('still detects an inversion after a leading UTF-8 BOM', () => {
+    const body = Buffer.from(`${hash(5)}:1\n${hash(4)}:1\n`, 'ascii');
+    expect(checkBufferSorted(Buffer.concat([BOM, body]), 40)).toBe(false);
+  });
+
+  it('detects an inversion between a BOM-prefixed first line and the next line', () => {
+    const body = Buffer.from(`${hash(9)}:1\n${hash(1)}:1\n`, 'ascii');
+    expect(checkBufferSorted(Buffer.concat([BOM, body]), 40)).toBe(false);
+  });
+
+  it('is unaffected when no BOM is present', () => {
+    expect(checkBufferSorted(Buffer.from(`${hash(1)}:1\n${hash(2)}:1\n`, 'ascii'), 40)).toBe(true);
+    expect(checkBufferSorted(Buffer.from(`${hash(2)}:1\n${hash(1)}:1\n`, 'ascii'), 40)).toBe(false);
   });
 });

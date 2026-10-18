@@ -51,10 +51,16 @@ function extractHash(
   lineEnd: number,
   hashLength: number,
 ): string | null {
-  if (lineEnd - lineStart < hashLength) return null;
-  const end = lineEnd > lineStart && buf[lineEnd - 1] === 0x0D ? lineEnd - 1 : lineEnd;
-  if (end - lineStart < hashLength) return null;
-  return buf.toString('ascii', lineStart, lineStart + hashLength);
+  let off = lineStart;
+  const limit = lineEnd;
+  if (limit - off >= 3 && buf[off] === 0xef && buf[off + 1] === 0xbb && buf[off + 2] === 0xbf) {
+    off += 3;
+  }
+  if (limit - off < hashLength) return null;
+  let end = limit;
+  if (end > off && buf[end - 1] === 0x0D) end -= 1;
+  if (end - off < hashLength) return null;
+  return buf.toString('ascii', off, off + hashLength);
 }
 
 /**

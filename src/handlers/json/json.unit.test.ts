@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { EventEmitter } from 'events';
 
 import {
@@ -14,6 +13,7 @@ import type {
   NestedPasswordObject, HashWithLeaksAndPasswordObjects, PasswordObject,
 } from '../../types.js';
 import { FIXTURES_DIR } from '../../../tests/helpers/fixturesDir.js';
+import { makeTestDir, makeTestFilePath } from '../../../tests/helpers/testTmp.js';
 
 const fixturesDir = FIXTURES_DIR;
 
@@ -123,7 +123,7 @@ describe('JSON input handler', () => {
   });
 
   it('decrypts encrypted export with correct password', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-enc-'));
+    const tmpDir = makeTestDir('json-input-enc-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const vault = {
@@ -162,7 +162,7 @@ describe('JSON input handler', () => {
   });
 
   it('shows "CLI/env var" spinner when password is provided directly', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-spinner-cli-'));
+    const tmpDir = makeTestDir('json-input-spinner-cli-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const vault = {
@@ -195,7 +195,7 @@ describe('JSON input handler', () => {
   });
 
   it('shows "CLI/env var" spinner when password is passed via parameter', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-spinner-env-'));
+    const tmpDir = makeTestDir('json-input-spinner-env-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const vault = {
@@ -228,7 +228,7 @@ describe('JSON input handler', () => {
   });
 
   it('throws for encrypted export with wrong password', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-wrongpw-'));
+    const tmpDir = makeTestDir('json-input-wrongpw-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const vault = {
@@ -258,7 +258,7 @@ describe('JSON input handler', () => {
   });
 
   it('throws for account-restricted encrypted export', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-accrestrict-'));
+    const tmpDir = makeTestDir('json-input-accrestrict-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const encrypted = generateEncryptedExport(
@@ -279,7 +279,7 @@ describe('JSON input handler', () => {
   });
 
   it('throws for decrypted export without items array', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-noitems-'));
+    const tmpDir = makeTestDir('json-input-noitems-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const encrypted = generateEncryptedExport(
@@ -299,7 +299,7 @@ describe('JSON input handler', () => {
   });
 
   it('decrypts via interactive prompt with raw mode asterisks', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-interactive-'));
+    const tmpDir = makeTestDir('json-input-interactive-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const vault = {
@@ -358,7 +358,7 @@ describe('JSON input handler', () => {
   });
 
   it('resolves null and exits when user presses ESC during interactive prompt', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-esc-'));
+    const tmpDir = makeTestDir('json-input-esc-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const encrypted = generateEncryptedExport(
@@ -394,7 +394,7 @@ describe('JSON input handler', () => {
   });
 
   it('calls process.exit(130) when user presses Ctrl+C during interactive prompt', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-ctrlc-'));
+    const tmpDir = makeTestDir('json-input-ctrlc-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const encrypted = generateEncryptedExport(
@@ -433,7 +433,7 @@ describe('JSON input handler', () => {
   });
 
   it('handles backspace in raw mode during interactive prompt', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-backspace-'));
+    const tmpDir = makeTestDir('json-input-backspace-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const exportPw = 'correct';
@@ -477,7 +477,7 @@ describe('JSON input handler', () => {
   });
 
   it('handles interactive prompt in non-TTY mode (no raw mode, no asterisks)', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-nontty-'));
+    const tmpDir = makeTestDir('json-input-nontty-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const exportPw = 'secret';
@@ -517,7 +517,7 @@ describe('JSON input handler', () => {
   });
 
   it('calls process.exit(130) on Ctrl+C in non-TTY mode', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-nontty-ctrlc-'));
+    const tmpDir = makeTestDir('json-input-nontty-ctrlc-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const encrypted = generateEncryptedExport(
@@ -556,7 +556,7 @@ describe('JSON input handler', () => {
   });
 
   it('ignores backspace when password is empty (raw mode)', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'json-input-empty-bs-'));
+    const tmpDir = makeTestDir('json-input-empty-bs-');
     const inputPath = path.join(tmpDir, 'encrypted.json');
 
     const exportPw = 'ok';
@@ -607,7 +607,7 @@ const makeJsonSampleData = (): HashWithLeaksAndPasswordObjects[] => [
 
 describe('JSON output handler', () => {
   it('writes data to JSON file correctly', async () => {
-    const tmpFile = path.join(os.tmpdir(), `test-output-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-output-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, makeJsonSampleData(), { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -626,7 +626,7 @@ describe('JSON output handler', () => {
   });
 
   it('records the active hash type in each output record', async () => {
-    const tmpFile = path.join(os.tmpdir(), `test-output-ntlm-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-output-ntlm-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, makeJsonSampleData(), {
         includeSecrets: true,
@@ -663,7 +663,7 @@ describe('JSON output handler', () => {
       },
     ];
 
-    const tmpFile = path.join(os.tmpdir(), `test-output-strip-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-output-strip-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data, { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -708,7 +708,7 @@ describe('JSON output handler', () => {
         ],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-output-stripped-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-output-stripped-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data, { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -721,7 +721,7 @@ describe('JSON output handler', () => {
   });
 
   it('handles empty data array', async () => {
-    const tmpFile = path.join(os.tmpdir(), `test-output-empty-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-output-empty-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, [], { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -742,7 +742,7 @@ describe('JSON output stripEmpty returns undefined', () => {
       },
     ];
 
-    const tmpFile = path.join(os.tmpdir(), `test-stripempty-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-stripempty-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data, { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -769,7 +769,7 @@ describe('JSON output stripEmpty returns undefined', () => {
       },
     ];
 
-    const tmpFile = path.join(os.tmpdir(), `test-date-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-date-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data, { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -790,7 +790,7 @@ describe('JSON output secure-by-default', () => {
         passwordObjects: [{ login_password: 'pass1', name: 'site1' }],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-secure-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-secure-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data);
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -811,7 +811,7 @@ describe('JSON output secure-by-default', () => {
         passwordObjects: [{ login_password: 'pass1', name: 'site1' }],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-insecure-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-insecure-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data, { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
@@ -842,7 +842,7 @@ describe('JSON output secure-by-default', () => {
         ],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-nested-secure-${Date.now()}.json`);
+    const tmpFile = makeTestFilePath(`test-nested-secure-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, data);
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));

@@ -53,15 +53,36 @@ const SPLIT_SUFFIX_LENGTHS: Record<number, 'sha1' | 'ntlm'> = {
 };
 
 /**
+ * Strip a leading UTF-8 BOM from a raw corpus line.
+ *
+ * Detection samples are decoded as latin1, so a corpus BOM (EF BB BF) appears
+ * as the three chars U+00EF U+00BB U+00BF.
+ *
+ * @param line - Raw line, as decoded from the detection sample.
+ * @returns The line without a leading BOM, unchanged when absent.
+ * @security Reads password-hash bytes; never log the result.
+ */
+function stripLeadingBom(line: string): string {
+  if (line.charCodeAt(0) === 0xef
+    && line.charCodeAt(1) === 0xbb
+    && line.charCodeAt(2) === 0xbf) {
+    return line.slice(3);
+  }
+  return line;
+}
+
+/**
  * Extract the hash-part length of a corpus line (the part before the separator).
  *
- * Blank lines (after trimming CR/LF and surrounding whitespace) return `null`.
+ * A leading UTF-8 BOM is ignored so it never counts toward the hash-part length.
+ * Blank lines (after stripping the BOM and trimming CR/LF and surrounding
+ * whitespace) return `null`.
  *
  * @param line - A single raw corpus line (may include a trailing `\r`).
  * @returns The trimmed length of the hash part, or `null` for blank lines.
  */
 function hashPartLength(line: string): number | null {
-  const trimmed = line.replace(/\r$/, '').trim();
+  const trimmed = stripLeadingBom(line).replace(/\r$/, '').trim();
   if (!trimmed) return null;
   const colon = trimmed.indexOf(':');
   const hashPart = colon === -1 ? trimmed : trimmed.slice(0, colon);
@@ -79,7 +100,7 @@ function hashPartLength(line: string): number | null {
 function collectLengths(buf: Buffer, truncated: boolean): Set<number> {
   const text = buf.toString('latin1');
   const lines = text.split('\n');
-  if (truncated && !text.endsWith('\n')) lines.pop();
+  if (truncated && !text.endsWith('\n') && lines.length > 0) lines.pop();
   const lengths = new Set<number>();
   lines.forEach((line) => {
     const len = hashPartLength(line);

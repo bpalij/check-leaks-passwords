@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 import { parseBuffer } from './parseBuffer.js';
 import type { PasswordObject, HashCandidate } from '../types.js';
+import { ntlm } from '../../tests/helpers/ntlm.js';
 
 describe('parseBuffer', () => {
   afterEach(() => {
@@ -300,5 +301,144 @@ describe('parseBuffer', () => {
     expect(results).toHaveLength(1);
     expect(results[0].leaks).toBe(1000);
     expect(stats.matchedHashCount).toBe(1);
+  });
+
+  it('matches a 27-char NTLM suffix (skipBytes=5, hashLength=27, fullHashLength=32)', () => {
+    const fullHash = ntlm('password123');
+    const suffix = fullHash.slice(5);
+    const key1 = Buffer.from(suffix, 'ascii').readUInt32BE(0);
+    const map = new Map<number, HashCandidate[]>([
+      [
+        key1,
+        [
+          {
+            fullHash,
+            fullHashBytes: Buffer.from(fullHash, 'ascii').subarray(0, 32),
+            passwordObjects: [{ login_password: 'password123' }],
+          },
+        ],
+      ],
+    ]);
+    const set = new Set([key1]);
+    const buffer = Buffer.from(`${suffix}:1000\n`, 'ascii');
+    const { stats, results } = parseBuffer(buffer, 27, map, set, 'ascii', { fullHashLength: 32 });
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe(fullHash);
+    expect(results[0].leaks).toBe(1000);
+    expect(stats.matchedHashCount).toBe(1);
+  });
+
+  it('matches a full 32-char NTLM hash (skipBytes=0, hashLength=32, fullHashLength=32)', () => {
+    const fullHash = ntlm('password123');
+    const key1 = Buffer.from(fullHash, 'ascii').readUInt32BE(0);
+    const map = new Map<number, HashCandidate[]>([
+      [
+        key1,
+        [
+          {
+            fullHash,
+            fullHashBytes: Buffer.from(fullHash, 'ascii').subarray(0, 32),
+            passwordObjects: [{ login_password: 'password123' }],
+          },
+        ],
+      ],
+    ]);
+    const set = new Set([key1]);
+    const buffer = Buffer.from(`${fullHash}:77\n`, 'ascii');
+    const { results } = parseBuffer(buffer, 32, map, set, 'ascii', { fullHashLength: 32 });
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe(fullHash);
+    expect(results[0].leaks).toBe(77);
+  });
+
+  it('skips a line shorter than hashLength', () => {
+    const fullHash = ntlm('password123');
+    const suffix = fullHash.slice(5); // 27 chars
+    const key1 = Buffer.from(fullHash, 'ascii').readUInt32BE(0);
+    const map = new Map<number, HashCandidate[]>([
+      [
+        key1,
+        [
+          {
+            fullHash,
+            fullHashBytes: Buffer.from(fullHash, 'ascii').subarray(0, 32),
+            passwordObjects: [{ login_password: 'password123' }],
+          },
+        ],
+      ],
+    ]);
+    const set = new Set([key1]);
+    // A 27-char suffix line must not match when the parser expects 32 chars.
+    const buffer = Buffer.from(`${suffix}:1000\n`, 'ascii');
+    const { stats, results } = parseBuffer(buffer, 32, map, set, 'ascii', { fullHashLength: 32 });
+    expect(results).toHaveLength(0);
+    expect(stats.matchedHashCount).toBe(0);
+  });
+
+  it('matches lower-case hex corpus lines against upper-case targets', () => {
+    const fullHash = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
+    const { map, set } = makeLookupMap(fullHash);
+    const buffer = Buffer.from(`${fullHash.toLowerCase()}:42\n`, 'ascii');
+    const { results } = parseBuffer(buffer, 40, map, set, 'ascii');
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe(fullHash);
+    expect(results[0].leaks).toBe(42);
+  });
+
+  const UTF8_BOM_BYTES = Buffer.from([
+    0xef,
+    0xbb,
+    0xbf,
+  ]);
+
+  it('skips a leading UTF-8 BOM and matches the first line', () => {
+    const fullHash = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
+    const { map, set } = makeLookupMap(fullHash);
+    const buffer = Buffer.concat([UTF8_BOM_BYTES, Buffer.from(`${fullHash}:1000\n`, 'ascii')]);
+    const { stats, results } = parseBuffer(buffer, 40, map, set, 'ascii');
+    expect(results).toHaveLength(1);
+    expect(results[0].hash).toBe(fullHash);
+    expect(results[0].leaks).toBe(1000);
+    expect(stats.matchedHashCount).toBe(1);
+    expect(stats.linesProcessed).toBe(1);
+  });
+
+  it('skips a UTF-8 BOM at the start of a later line', () => {
+    const firstHash = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
+    const secondHash = 'B7A875FC1EA228B9061041B7CEC4BD3C52AB3CE3';
+    const map = new Map<number, HashCandidate[]>();
+    const addTarget = (hash: string, pw: string) => {
+      const hb = Buffer.from(hash, 'ascii');
+      const key = hb.readUInt32BE(0);
+      const arr = map.get(key) ?? [];
+      arr.push({
+        fullHash: hash,
+        fullHashBytes: hb.subarray(0, 40),
+        passwordObjects: [{ login_password: pw }],
+      });
+      map.set(key, arr);
+    };
+    addTarget(firstHash, 'pass1');
+    addTarget(secondHash, 'pass2');
+    const set = new Set(map.keys());
+    const buffer = Buffer.concat([
+      Buffer.from(`${firstHash}:1000\n`, 'ascii'),
+      UTF8_BOM_BYTES,
+      Buffer.from(`${secondHash}:500\n`, 'ascii'),
+    ]);
+    const { stats, results } = parseBuffer(buffer, 40, map, set, 'ascii');
+    expect(results).toHaveLength(2);
+    expect(results[0].hash).toBe(firstHash);
+    expect(results[1].hash).toBe(secondHash);
+    expect(results[1].leaks).toBe(500);
+    expect(stats.linesProcessed).toBe(2);
+  });
+
+  it('does not match a buffer containing only a UTF-8 BOM', () => {
+    const { map, set } = makeLookupMap('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+    const { stats, results } = parseBuffer(UTF8_BOM_BYTES, 40, map, set, 'ascii');
+    expect(results).toHaveLength(0);
+    expect(stats.matchedHashCount).toBe(0);
+    expect(stats.linesProcessed).toBe(1);
   });
 });

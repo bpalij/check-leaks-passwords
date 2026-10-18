@@ -3,3 +3,5 @@ dist/
 coverage/
 tests/__output__/
 .env
+
+manual-testing-*/

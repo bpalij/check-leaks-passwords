@@ -72,8 +72,9 @@ export interface LargeCorpus {
  * at least one line past the highest match index.
  *
  * @param filePath - Destination path (created/truncated).
- * @param minBytes - Minimum desired file size in bytes (use >= 1 GiB to satisfy
- *   the sortedness threshold).
+ * @param minBytes - Minimum desired file size in bytes. Tests that need the
+ *   live sortedness check to run should size the corpus above the resolved
+ *   `SMALL_FILE_BYTES_THRESHOLD` (96 KiB with the usual 64 KiB test override).
  * @param matchIndices - Line indices to plant as matches.
  * @param matchLeaks - Single-digit leak count written on matched lines.
  * @returns Metadata about the written corpus, including the planted matches.

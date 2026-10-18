@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 
 import {
   describe, it, expect, vi, beforeEach,
@@ -7,8 +8,34 @@ import {
 import { IDX_PREFIX_COUNT } from '../../constants';
 import { indexReader } from './indexBased';
 import { FIXTURES_DIR } from '../../../tests/helpers/fixturesDir.js';
+import { ntlm } from '../../../tests/helpers/ntlm.js';
+import { makeSortedCorpus } from '../../../tests/helpers/hashCases.js';
+import { makeTestFilePath } from '../../../tests/helpers/testTmp.js';
 
 vi.mock('../../memory/getAvailableMemBytes.js', () => ({ getAvailableMemBytes: () => 1024 * 1024 * 1024 }));
+
+/**
+ * Build a sorted 32-char corpus plus a matching `.idx` offset table.
+ *
+ * @param pairs - `[hash, leakCount]` entries to write to the corpus.
+ * @returns The corpus text and the parallel `.idx` offset table.
+ */
+function buildNtlmFixture(
+  pairs: Array<[string, number]>,
+): { content: string; idx: BigUint64Array } {
+  const content = makeSortedCorpus(pairs);
+  const idx = new BigUint64Array(IDX_PREFIX_COUNT + 1);
+  let offset = 0;
+  content.split('\n').forEach((line) => {
+    if (line === '') return;
+    const prefix = parseInt(line.slice(0, 5), 16);
+    const lineLen = Buffer.byteLength(line, 'ascii') + 1; // include newline
+    idx[prefix] = BigInt(offset);
+    idx[prefix + 1] = BigInt(offset + lineLen);
+    offset += lineLen;
+  });
+  return { content, idx };
+}
 
 const filePath = path.join(FIXTURES_DIR, 'binary-sorted-hashes.txt');
 const fileSize = 2103;
@@ -185,6 +212,59 @@ describe('indexReader', () => {
     expect(logs.some((l) => l.includes('Index read: reading'))).toBe(true);
     expect(logs.some((l) => l.includes('HDD detected, using 1 worker'))).toBe(true);
     expect(logs.some((l) => l.includes('Index read complete'))).toBe(true);
+  });
+
+  it('finds 32-char NTLM hashes when fullHashLength=32', async () => {
+    const vectors: Array<[string, number]> = [
+      [ntlm('password'), 99999],
+      [ntlm('123456'), 37281043],
+      [ntlm('letmein'), 250000],
+      [ntlm('password123'), 1000],
+    ];
+    const { content, idx: ntlmIdx } = buildNtlmFixture(vectors);
+    const tmpFile = makeTestFilePath(`idx-ntlm-${Date.now()}.txt`);
+    fs.writeFileSync(tmpFile, content, 'ascii');
+
+    const map = new Map<number, Array<{ fullHash: string; fullHashBytes: Buffer }>>();
+    const pwMap = new Map<string, Array<{ login_password: string }>>();
+    vectors.forEach(([hash]) => {
+      pwMap.set(hash, [{ login_password: 'pw' }]);
+      const key = Buffer.from(hash, 'ascii').readUInt32BE(0);
+      map.set(key, [{ fullHash: hash, fullHashBytes: Buffer.from(hash, 'ascii').subarray(0, 32) }]);
+    });
+
+    try {
+      const out = await indexReader(tmpFile, content.length, map, null, 'ascii', ntlmIdx, pwMap, undefined, undefined, false, 32);
+      expect(out).toHaveLength(vectors.length);
+      const byHash = new Map(out.map((r) => [r.hash, r.leaks]));
+      vectors.forEach(([hash, count]) => {
+        expect(byHash.get(hash)).toBe(count);
+      });
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
+  });
+
+  it('does not match 32-char NTLM hashes when fullHashLength is not threaded (default 40)', async () => {
+    const vectors: Array<[string, number]> = [[ntlm('password'), 99999], [ntlm('123456'), 37281043]];
+    const { content, idx: ntlmIdx } = buildNtlmFixture(vectors);
+    const tmpFile = makeTestFilePath(`idx-ntlm-def-${Date.now()}.txt`);
+    fs.writeFileSync(tmpFile, content, 'ascii');
+
+    const map = new Map<number, Array<{ fullHash: string; fullHashBytes: Buffer }>>();
+    const pwMap = new Map<string, Array<{ login_password: string }>>();
+    vectors.forEach(([hash]) => {
+      pwMap.set(hash, [{ login_password: 'pw' }]);
+      const key = Buffer.from(hash, 'ascii').readUInt32BE(0);
+      map.set(key, [{ fullHash: hash, fullHashBytes: Buffer.from(hash, 'ascii').subarray(0, 32) }]);
+    });
+
+    try {
+      const out = await indexReader(tmpFile, content.length, map, null, 'ascii', ntlmIdx, pwMap);
+      expect(out).toHaveLength(0);
+    } finally {
+      fs.unlinkSync(tmpFile);
+    }
   });
 
   it('enriches missing hash with empty passwordObjects (covers line 163 ?? [])', async () => {

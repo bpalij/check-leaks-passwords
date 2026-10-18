@@ -296,6 +296,40 @@ describe('tryLoadIndex', () => {
     expect(result).toBeNull();
   });
 
+  it('rejects a fresh SHA-1 .idx when NTLM is expected (symmetric mismatch)', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(
+      fakeIdx(IDX_HASH_TYPE_SHA1, 500n),
+    );
+
+    const result = await tryLoadIndex(
+      '/path/file.txt',
+      1000,
+      new Map(),
+      undefined,
+      { fullHashLength: 32, fileSize: 500 },
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('accepts a fresh NTLM .idx when NTLM is expected', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(
+      fakeIdx(IDX_HASH_TYPE_NTLM, 500n),
+    );
+
+    const result = await tryLoadIndex(
+      '/path/file.txt',
+      1000,
+      new Map(),
+      undefined,
+      { fullHashLength: 32, fileSize: 500 },
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it('rejects a fresh .idx built for a different file size (same-path swap)', async () => {
     vi.spyOn(fs.promises, 'stat').mockResolvedValue({ mtimeMs: 2000 } as fs.Stats);
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue(

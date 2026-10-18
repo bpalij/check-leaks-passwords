@@ -1,5 +1,4 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 import {
@@ -8,12 +7,19 @@ import {
   detectSplitDirectoryHashType,
   resolveActiveHashInfo,
 } from './detectHashType.js';
+import { makeTestDir } from '../../tests/helpers/testTmp.js';
 
 const SHA1_A = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
 const NTLM_A = '8846F7EAEE8FB117AD06BDD830B7586C';
 
+/**
+ * UTF-8 byte-order mark character. Written with utf8 encoding it produces the
+ * EF BB BF byte prefix that detection must tolerate.
+ */
+const UTF8_BOM = '\ufeff';
+
 function tmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'detect-hash-'));
+  return makeTestDir('detect-hash-');
 }
 
 function writeFile(dir: string, name: string, content: string): string {
@@ -85,6 +91,34 @@ describe('detectSingleFileHashType', () => {
     await expect(detectSingleFileHashType(file)).resolves.toEqual({ type: 'ntlm', sampleLength: 32 });
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it('detects ntlm when the corpus starts with a UTF-8 BOM', async () => {
+    const dir = tmpDir();
+    const file = writeFile(dir, 'corpus.txt', `${UTF8_BOM}${NTLM_A}:1000\n${NTLM_A}:5\n`);
+    await expect(detectSingleFileHashType(file)).resolves.toEqual({ type: 'ntlm', sampleLength: 32 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('detects ntlm when a later line in the sample starts with a UTF-8 BOM', async () => {
+    const dir = tmpDir();
+    const file = writeFile(dir, 'corpus.txt', `${NTLM_A}:1000\n${UTF8_BOM}${NTLM_A}:5\n`);
+    await expect(detectSingleFileHashType(file)).resolves.toEqual({ type: 'ntlm', sampleLength: 32 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('detects sha1 when the corpus starts with a UTF-8 BOM', async () => {
+    const dir = tmpDir();
+    const file = writeFile(dir, 'corpus.txt', `${UTF8_BOM}${SHA1_A}:1000\n`);
+    await expect(detectSingleFileHashType(file)).resolves.toEqual({ type: 'sha1', sampleLength: 40 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('returns unknown for a file containing only a UTF-8 BOM', async () => {
+    const dir = tmpDir();
+    const file = writeFile(dir, 'corpus.txt', UTF8_BOM);
+    await expect(detectSingleFileHashType(file)).resolves.toEqual({ type: 'unknown' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe('detectSplitDirectoryHashType', () => {
@@ -128,6 +162,13 @@ describe('detectSplitDirectoryHashType', () => {
   it('ignores blank lines and CRLF when sampling split files', async () => {
     const dir = tmpDir();
     writeFile(dir, '8846F', `\r\n  \r\n${NTLM_A.slice(5)}:5\r\n`);
+    await expect(detectSplitDirectoryHashType(dir)).resolves.toEqual({ type: 'ntlm', sampleLength: 27 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('detects ntlm when a split file starts with a UTF-8 BOM', async () => {
+    const dir = tmpDir();
+    writeFile(dir, '8846F', `${UTF8_BOM}${NTLM_A.slice(5)}:1000\n`);
     await expect(detectSplitDirectoryHashType(dir)).resolves.toEqual({ type: 'ntlm', sampleLength: 27 });
     fs.rmSync(dir, { recursive: true, force: true });
   });

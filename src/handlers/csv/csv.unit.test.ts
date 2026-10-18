@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 
 import {
   describe, it, expect,
@@ -14,6 +13,7 @@ import type {
   FlatPasswordObject, HashWithLeaksAndPasswordObjects, PasswordObject,
 } from '../../types.js';
 import { FIXTURES_DIR } from '../../../tests/helpers/fixturesDir.js';
+import { makeTestFilePath } from '../../../tests/helpers/testTmp.js';
 
 const fixturesDir = FIXTURES_DIR;
 
@@ -194,7 +194,7 @@ const makeDataWithNonStringValues = (): HashWithLeaksAndPasswordObjects[] => [
 
 describe('CSV output handler', () => {
   it('rejects when write stream emits error', async () => {
-    const dirPath = path.join(os.tmpdir(), `csv-err-${Date.now()}`);
+    const dirPath = makeTestFilePath(`csv-err-${Date.now()}`);
     fs.mkdirSync(dirPath, { recursive: true });
     try {
       await expect(
@@ -206,7 +206,7 @@ describe('CSV output handler', () => {
   });
 
   it('writes data to CSV file correctly', async () => {
-    const tmpFile = path.join(os.tmpdir(), `test-output-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-output-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, makeSampleData(), { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
@@ -220,7 +220,7 @@ describe('CSV output handler', () => {
   });
 
   it('handles non-string values by serializing them', async () => {
-    const tmpFile = path.join(os.tmpdir(), `test-output-nonstring-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-output-nonstring-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(
         tmpFile,
@@ -252,7 +252,7 @@ describe('CSV output handler', () => {
       },
     ];
 
-    const tmpFile = path.join(os.tmpdir(), `test-output-flat-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-output-flat-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, flatData, { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
@@ -291,7 +291,7 @@ describe('CSV output handler', () => {
       },
     ];
 
-    const tmpFile = path.join(os.tmpdir(), `test-output-nested-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-output-nested-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, nestedData, { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
@@ -314,7 +314,7 @@ describe('CSV output handler', () => {
   });
 
   it('handles empty data array', async () => {
-    const tmpFile = path.join(os.tmpdir(), `test-output-empty-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-output-empty-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, [], { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
@@ -334,7 +334,7 @@ describe('CSV output secure-by-default', () => {
         passwordObjects: [{ login_password: 'pass1', name: 'site1' }],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-csv-secure-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-csv-secure-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, data);
       const content = fs.readFileSync(tmpFile, 'utf-8');
@@ -354,7 +354,7 @@ describe('CSV output secure-by-default', () => {
         passwordObjects: [{ login_password: 'pass1', name: 'site1' }],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-csv-insecure-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-csv-insecure-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, data, { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
@@ -384,7 +384,7 @@ describe('CSV output secure-by-default', () => {
         ],
       },
     ];
-    const tmpFile = path.join(os.tmpdir(), `test-csv-nested-secure-${Date.now()}.csv`);
+    const tmpFile = makeTestFilePath(`test-csv-nested-secure-${Date.now()}.csv`);
     try {
       await writePreparedDataToCsv(tmpFile, data);
       const content = fs.readFileSync(tmpFile, 'utf-8');

@@ -4,6 +4,7 @@ import { processChunk, ChunkDescriptor } from './processChunk.js';
 import type { PasswordObject } from '../types.js';
 import { buildHashLookupMap } from '../hashing/buildLookupMap.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
+import { ntlm } from '../../tests/helpers/ntlm.js';
 
 vi.mock('../constants', async () => {
   const actual = await vi.importActual('../constants');
@@ -347,6 +348,52 @@ describe('processChunk', () => {
 
     expect(result.results).toHaveLength(2);
     expect(recordBoundary).toHaveBeenCalled();
+  });
+
+  it('matches a 32-char NTLM full hash when fullHashLength is 32', async () => {
+    const fullHash = ntlm('password123');
+    expect(fullHash).toHaveLength(32);
+    const content = Buffer.from(`${fullHash}:5000\n`, 'ascii');
+    const fd = mockFileHandle(content);
+    const map = makeMap(fullHash, [{ login_password: 'password123' }]);
+    const { map: hashLookupMap } = buildHashLookupMap(map, 32);
+    const fingerprintSet = new Set(hashLookupMap.keys());
+    const d = desc({ readEnd: content.length - 1, isLast: true });
+    const report = vi.fn();
+
+    const result = await processChunk(
+      d,
+      fd as never,
+      hashLookupMap,
+      fingerprintSet,
+      'ascii',
+      report,
+      undefined,
+      undefined,
+      32,
+    );
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].hash).toBe(fullHash);
+    expect(result.results[0].leaks).toBe(5000);
+    expect(result.matchedHashCount).toBe(1);
+  });
+
+  it('does not match a 32-char NTLM line when fullHashLength is not threaded (default 40)', async () => {
+    const fullHash = ntlm('password123');
+    const content = Buffer.from(`${fullHash}:5000\n`, 'ascii');
+    const fd = mockFileHandle(content);
+    const map = makeMap(fullHash, [{ login_password: 'password123' }]);
+    const { map: hashLookupMap } = buildHashLookupMap(map, 32);
+    const fingerprintSet = new Set(hashLookupMap.keys());
+    const d = desc({ readEnd: content.length - 1, isLast: true });
+    const report = vi.fn();
+
+    // Omitting the final argument leaves the SHA-1 default (40): the 32-char
+    // line is shorter than the expected hash length, so nothing matches.
+    const result = await processChunk(d, fd as never, hashLookupMap, fingerprintSet, 'ascii', report);
+
+    expect(result.results).toHaveLength(0);
   });
 
   it('throws when line exceeds MAX_LINE_BYTES (no newlines across multiple reads)', async () => {

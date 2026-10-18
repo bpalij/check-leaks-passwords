@@ -1,12 +1,13 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import v8 from 'v8';
 import { Worker } from 'worker_threads';
 
 import { buildHashLookupMap } from '../hashing/buildLookupMap.js';
 import type { ChunkResult } from './processChunk.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
+import { ntlm } from '../../tests/helpers/ntlm.js';
+import { makeTestFilePath } from '../../tests/helpers/testTmp.js';
 
 interface WorkerMessage {
   type: 'progress' | 'result' | 'error';
@@ -24,7 +25,7 @@ describe('processChunkWorker', () => {
   it('processes a chunk and returns results', async () => {
     const hash = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
     const content = `${hash}:1000\n`;
-    const filePath = path.join(os.tmpdir(), `test-worker-${Date.now()}.txt`);
+    const filePath = makeTestFilePath(`test-worker-${Date.now()}.txt`);
     fs.writeFileSync(filePath, content, 'ascii');
 
     const map = makeMap(hash);
@@ -73,6 +74,57 @@ describe('processChunkWorker', () => {
     expect(data.results[0].hash).toBe(hash);
     expect(data.results[0].leaks).toBe(1000);
     expect(messages.some((m) => m.type === 'progress')).toBe(true);
+
+    fs.unlinkSync(filePath);
+  });
+
+  it('matches a 32-char NTLM hash when workerData.fullHashLength is 32', async () => {
+    const hash = ntlm('password123');
+    expect(hash).toHaveLength(32);
+    const content = `${hash}:777\n`;
+    const filePath = makeTestFilePath(`test-worker-ntlm-${Date.now()}.txt`);
+    fs.writeFileSync(filePath, content, 'ascii');
+
+    const map = makeMap(hash, [{ login_password: 'password123' }]);
+    const { map: hashLookupMap, set: fingerprintSet } = buildHashLookupMap(map, 32);
+
+    const data = await new Promise<ChunkResult>((resolve, reject) => {
+      const worker = new Worker(workerPath, {
+        workerData: {
+          desc: {
+            readStart: 0,
+            readEnd: content.length - 1,
+            coreStart: 0,
+            coreEnd: content.length,
+            isLast: true,
+          },
+          filePath,
+          serializedMap: v8.serialize(hashLookupMap),
+          serializedFingerprints: v8.serialize(fingerprintSet),
+          encoding: 'ascii',
+          fullHashLength: 32,
+        },
+      });
+
+      worker.on('message', (msg: WorkerMessage) => {
+        if (msg.type === 'result') {
+          worker.terminate();
+          resolve(msg.data as ChunkResult);
+        }
+        if (msg.type === 'error') {
+          worker.terminate();
+          reject(new Error(msg.message));
+        }
+      });
+      worker.on('error', (err) => { worker.terminate(); reject(err); });
+      worker.on('exit', (code) => {
+        if (code !== 0) reject(new Error(`Worker exited ${code}`));
+      });
+    });
+
+    expect(data.results).toHaveLength(1);
+    expect(data.results[0].hash).toBe(hash);
+    expect(data.results[0].leaks).toBe(777);
 
     fs.unlinkSync(filePath);
   });

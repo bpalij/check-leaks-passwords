@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
 import {
   describe, it, expect, vi, afterEach,
@@ -10,21 +9,22 @@ import type { PasswordObject } from '../types.js';
 import { processSingleFile } from './processSingleFile.js';
 import {
   IDX_HEADER_SIZE, IDX_PREFIX_COUNT, IDX_SORTED_FLAG_OK, NTLM_HEX_LENGTH,
-  SMALL_FILE_BYTES_THRESHOLD,
 } from '../constants.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
 import {
   LARGE_CORPUS_LINES_PER_PREFIX, writeLargeSha1Corpus,
 } from '../../tests/helpers/largeCorpus.js';
+import { makeTestDir } from '../../tests/helpers/testTmp.js';
 
 const sha1OfPassword123 = 'E38AD214943DAAD1D64C102FAEC29DE4AFE9DA3D';
 const fixturesDir = FIXTURES_DIR;
 
-// A corpus just above the sortedness threshold (>= 1 GiB) so the index builder
-// actually runs; below the threshold sortedness is `skipped` and no `.idx` is
-// produced.
-const LARGE_CORPUS_BYTES = SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024;
+// A corpus just above the (overridden) sortedness threshold so the index
+// builder actually runs; below the threshold sortedness is `skipped` and no
+// `.idx` is produced. 96 KiB stays above the 80 KiB non-overlap floor.
+const SMALL_CORPUS_BYTES = 96 * 1024;
+const SMALL_FILE_THRESHOLD_ENV = '65536';
 
 describe('processSingleFile integration (real workers)', () => {
   const tmpDirs: string[] = [];
@@ -33,10 +33,11 @@ describe('processSingleFile integration (real workers)', () => {
     tmpDirs.forEach((dir) => {
       try { fs.rmSync(dir, { recursive: true }); } catch { /* ignore */ }
     });
+    tmpDirs.length = 0;
   });
 
   it('parallel sequential with CHUNK_COUNT=4 — no duplicates, no misses', { timeout: 60000 }, async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-'));
+    const tmpDir = makeTestDir('psi-int-');
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-large.txt');
@@ -108,18 +109,20 @@ describe('processSingleFile integration (real workers)', () => {
   });
 
   it('parallel sequential with buildIndex — .idx created from workers', { timeout: 120000 }, async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-'));
+    const tmpDir = makeTestDir('psi-int-');
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-index.txt');
-    const { matches } = writeLargeSha1Corpus(hashFilePath, LARGE_CORPUS_BYTES, [1000]);
+    const { matches } = writeLargeSha1Corpus(hashFilePath, SMALL_CORPUS_BYTES, [1000]);
     const matchHash = matches[0].hash;
 
     const lookupMap = new Map<string, PasswordObject[]>();
     lookupMap.set(matchHash, [{ login_password: 'found-it' }]);
 
     const savedChunkCount = process.env.CHUNK_COUNT;
+    const savedThreshold = process.env.SMALL_FILE_BYTES_THRESHOLD;
     process.env.CHUNK_COUNT = '3';
+    process.env.SMALL_FILE_BYTES_THRESHOLD = SMALL_FILE_THRESHOLD_ENV;
     try {
       const results = await processSingleFile(
         lookupMap,
@@ -145,15 +148,17 @@ describe('processSingleFile integration (real workers)', () => {
     } finally {
       if (savedChunkCount === undefined) delete process.env.CHUNK_COUNT;
       else process.env.CHUNK_COUNT = savedChunkCount;
+      if (savedThreshold === undefined) delete process.env.SMALL_FILE_BYTES_THRESHOLD;
+      else process.env.SMALL_FILE_BYTES_THRESHOLD = savedThreshold;
     }
   });
 
   it('index mode without .idx — bootstraps index on first run, reuses on second', { timeout: 120000 }, async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-idx-bootstrap-'));
+    const tmpDir = makeTestDir('psi-int-idx-bootstrap-');
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-bootstrap.txt');
-    const { matches } = writeLargeSha1Corpus(hashFilePath, LARGE_CORPUS_BYTES, [5000]);
+    const { matches } = writeLargeSha1Corpus(hashFilePath, SMALL_CORPUS_BYTES, [1000]);
     const matchHash = matches[0].hash;
 
     const lookupMap = new Map<string, PasswordObject[]>();
@@ -162,48 +167,62 @@ describe('processSingleFile integration (real workers)', () => {
     const idxPath = `${hashFilePath}.idx`;
     expect(fs.existsSync(idxPath)).toBe(false);
 
+    const savedThreshold = process.env.SMALL_FILE_BYTES_THRESHOLD;
+    const savedSpeedMin = process.env.SPEED_TEST_MIN_BYTES;
+    process.env.SMALL_FILE_BYTES_THRESHOLD = SMALL_FILE_THRESHOLD_ENV;
+    // Force the drive speed test so `preCheckSkipped` is false and the
+    // index-mode branch (which logs the fresh/no-fresh .idx messages) runs.
+    process.env.SPEED_TEST_MIN_BYTES = '0';
+
     const firstLogs: string[] = [];
-    const first = await processSingleFile(
-      lookupMap,
-      hashFilePath,
-      'ascii',
-      (m) => firstLogs.push(m),
-      undefined,
-      undefined,
-      'index',
-      true,
-    );
-    expect(first).toHaveLength(1);
-    expect(first[0].passwordObjects[0].login_password).toBe('bootstrapped');
-    expect(firstLogs.some((l) => l.includes('No fresh .idx found'))).toBe(true);
-    expect(fs.existsSync(idxPath)).toBe(true);
-
-    const idxBuf = fs.readFileSync(idxPath);
-    // eslint-disable-next-line no-bitwise
-    expect(idxBuf[0] & IDX_SORTED_FLAG_OK).toBe(IDX_SORTED_FLAG_OK);
-    const idxStat = fs.statSync(idxPath);
-    const hashStat = fs.statSync(hashFilePath);
-    expect(idxStat.mtimeMs).toBeGreaterThanOrEqual(hashStat.mtimeMs);
-
     const secondLogs: string[] = [];
-    const second = await processSingleFile(
-      lookupMap,
-      hashFilePath,
-      'ascii',
-      (m) => secondLogs.push(m),
-      undefined,
-      undefined,
-      'index',
-      true,
-    );
-    expect(second).toHaveLength(1);
-    expect(second[0].passwordObjects[0].login_password).toBe('bootstrapped');
-    expect(secondLogs.some((l) => l.includes('Fresh .idx found'))).toBe(true);
-    expect(secondLogs.some((l) => l.includes('No fresh .idx found'))).toBe(false);
+    try {
+      const first = await processSingleFile(
+        lookupMap,
+        hashFilePath,
+        'ascii',
+        (m) => firstLogs.push(m),
+        undefined,
+        undefined,
+        'index',
+        true,
+      );
+      expect(first).toHaveLength(1);
+      expect(first[0].passwordObjects[0].login_password).toBe('bootstrapped');
+      expect(firstLogs.some((l) => l.includes('No fresh .idx found'))).toBe(true);
+      expect(fs.existsSync(idxPath)).toBe(true);
+
+      const idxBuf = fs.readFileSync(idxPath);
+      // eslint-disable-next-line no-bitwise
+      expect(idxBuf[0] & IDX_SORTED_FLAG_OK).toBe(IDX_SORTED_FLAG_OK);
+      const idxStat = fs.statSync(idxPath);
+      const hashStat = fs.statSync(hashFilePath);
+      expect(idxStat.mtimeMs).toBeGreaterThanOrEqual(hashStat.mtimeMs);
+
+      const second = await processSingleFile(
+        lookupMap,
+        hashFilePath,
+        'ascii',
+        (m) => secondLogs.push(m),
+        undefined,
+        undefined,
+        'index',
+        true,
+      );
+      expect(second).toHaveLength(1);
+      expect(second[0].passwordObjects[0].login_password).toBe('bootstrapped');
+      expect(secondLogs.some((l) => l.includes('Fresh .idx found'))).toBe(true);
+      expect(secondLogs.some((l) => l.includes('No fresh .idx found'))).toBe(false);
+    } finally {
+      if (savedThreshold === undefined) delete process.env.SMALL_FILE_BYTES_THRESHOLD;
+      else process.env.SMALL_FILE_BYTES_THRESHOLD = savedThreshold;
+      if (savedSpeedMin === undefined) delete process.env.SPEED_TEST_MIN_BYTES;
+      else process.env.SPEED_TEST_MIN_BYTES = savedSpeedMin;
+    }
   });
 
   it('processes a hash file with multiple workers and returns matched results', { timeout: 60000 }, async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-'));
+    const tmpDir = makeTestDir('psi-int-');
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes.txt');
@@ -236,20 +255,20 @@ describe('processSingleFile integration (real workers)', () => {
   });
 
   it('parallel sequential with buildIndex — .idx binary content verified', { timeout: 120000 }, async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psi-int-idx-verify-'));
+    const tmpDir = makeTestDir('psi-int-idx-verify-');
     tmpDirs.push(tmpDir);
 
     const hashFilePath = path.join(tmpDir, 'hashes-idx-verify.txt');
     const matchIndices = [
-      1000,
-      5000000,
-      12000000,
-      20000000,
-      26000000,
+      256,
+      512,
+      768,
+      1024,
+      1280,
     ];
     const { matches } = writeLargeSha1Corpus(
       hashFilePath,
-      LARGE_CORPUS_BYTES,
+      SMALL_CORPUS_BYTES,
       matchIndices,
     );
     const fileSize = fs.statSync(hashFilePath).size;
@@ -260,7 +279,9 @@ describe('processSingleFile integration (real workers)', () => {
     });
 
     const savedChunkCount = process.env.CHUNK_COUNT;
+    const savedThreshold = process.env.SMALL_FILE_BYTES_THRESHOLD;
     process.env.CHUNK_COUNT = '3';
+    process.env.SMALL_FILE_BYTES_THRESHOLD = SMALL_FILE_THRESHOLD_ENV;
     try {
       const results = await processSingleFile(
         pwMap,
@@ -300,6 +321,8 @@ describe('processSingleFile integration (real workers)', () => {
     } finally {
       if (savedChunkCount === undefined) delete process.env.CHUNK_COUNT;
       else process.env.CHUNK_COUNT = savedChunkCount;
+      if (savedThreshold === undefined) delete process.env.SMALL_FILE_BYTES_THRESHOLD;
+      else process.env.SMALL_FILE_BYTES_THRESHOLD = savedThreshold;
     }
   });
 });
@@ -406,7 +429,7 @@ describe('processSingleFile integration (fixture files)', () => {
   });
 
   it('rejects on error during stream read (permission denied)', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-stream-error-'));
+    const tempDir = makeTestDir('test-stream-error-');
     const tempFile = path.join(tempDir, 'unreadable.txt');
     fs.writeFileSync(tempFile, 'anything');
     fs.chmodSync(tempFile, 0o000);
@@ -421,7 +444,7 @@ describe('processSingleFile integration (fixture files)', () => {
   });
 
   it('processes file with 2 chunks without duplicates or misses', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-concurrent-'));
+    const tempDir = makeTestDir('test-concurrent-');
     const tempFile = path.join(tempDir, 'hashes.txt');
     try {
       const h1 = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
@@ -452,7 +475,7 @@ describe('processSingleFile integration (fixture files)', () => {
   });
 
   it('returns empty array with 2 chunks on empty file', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-concurrent-empty-'));
+    const tempDir = makeTestDir('test-concurrent-empty-');
     const tempFile = path.join(tempDir, 'empty.txt');
     try {
       fs.writeFileSync(tempFile, '', 'ascii');
@@ -479,7 +502,7 @@ describe('processSingleFile integration (fixture files)', () => {
   });
 
   it('calls onProgress with workers count during concurrent chunks', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'conc-log-'));
+    const tempDir = makeTestDir('conc-log-');
     const tempFile = path.join(tempDir, 'hashes.txt');
     try {
       const h1 = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
@@ -504,7 +527,7 @@ describe('processSingleFile integration (fixture files)', () => {
   it('warns when overlapping chunks have differing leak counts for same hash', async () => {
     const h1 = 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97';
     const h2 = 'B7A875FC1EA228B9061041B7CEC4BD3C52AB3CE3';
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-dedup-warn-'));
+    const tempDir = makeTestDir('test-dedup-warn-');
     const tempFile = path.join(tempDir, 'hashes.txt');
     try {
       fs.writeFileSync(tempFile, `${h1}:100\n${h2}:200\n${h1}:300\n`, 'ascii');
@@ -560,5 +583,46 @@ describe('processSingleFile NTLM single-file (real workers)', () => {
     map.set('E38AD214943DAAD1D64C102FAEC29DE4AFE9DA3D', [{ login_password: 'password123' }]);
     const results = await processSingleFile(map, ntlmCorpus, 'ascii', undefined, undefined, undefined, 'auto', false, NTLM_HEX_LENGTH);
     expect(results).toHaveLength(0);
+  });
+
+  it('matches a hash on the first line when the corpus starts with a UTF-8 BOM', { timeout: 60000 }, async () => {
+    const tmpDir = makeTestDir('psi-int-bom-');
+    const bomCorpus = path.join(tmpDir, 'ntlm-bom.txt');
+    const BOM = Buffer.from([
+      0xef,
+      0xbb,
+      0xbf,
+    ]);
+    fs.writeFileSync(
+      bomCorpus,
+      Buffer.concat([
+        BOM,
+        Buffer.from('8846F7EAEE8FB117AD06BDD830B7586C:99999\n', 'ascii'),
+        Buffer.from('00000000000000000000000000000000:0\n', 'ascii'),
+      ]),
+    );
+
+    const map = new Map<string, PasswordObject[]>();
+    map.set('8846F7EAEE8FB117AD06BDD830B7586C', [{ login_password: 'password' }]);
+
+    try {
+      const results = await processSingleFile(
+        map,
+        bomCorpus,
+        'ascii',
+        undefined,
+        undefined,
+        undefined,
+        'auto',
+        false,
+        NTLM_HEX_LENGTH,
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0].hash).toBe('8846F7EAEE8FB117AD06BDD830B7586C');
+      expect(results[0].leaks).toBe(99999);
+      expect(results[0].passwordObjects[0].login_password).toBe('password');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

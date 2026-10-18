@@ -18,10 +18,11 @@ if (args.includes('--help') || args.includes('-h')) {
   process.stdout.write(`Usage: check-leaks [options]
 
 Options:
-  --export-password <pw>  Password for encrypted Bitwarden exports
-  --dry-run              Show summary without scanning
-  --include-secrets      Include plaintext passwords/TOTP in output
-  --help, -h             Show this help
+  --export-password <pw>       Password for encrypted Bitwarden exports
+  --dry-run                    Show summary without scanning
+  --include-secrets            Include plaintext passwords/TOTP in output
+  --small-file-threshold <n>   Sortedness skip threshold in bytes (default: 1 GiB)
+  --help, -h                   Show this help
 
 Configuration via environment variables (.env or shell):
   INPUT_PATH              (required) Path to Bitwarden export (CSV or JSON)
@@ -37,6 +38,7 @@ Configuration via environment variables (.env or shell):
   READ_AHEAD              Number of read-ahead streams (default: 2)
   HIBP_CONCURRENCY        Parallel API requests (default: 200, max: 200)
   MAX_OPEN_FILES          Max concurrent file descriptors for split-dir reads
+  SMALL_FILE_BYTES_THRESHOLD  Sortedness skip threshold in bytes (default: 1 GiB)
 `);
   process.exit(0);
 }
@@ -53,6 +55,17 @@ if (exportPasswordIdx !== -1) {
 }
 
 const cliPassword = exportPasswordIdx !== -1 ? args[exportPasswordIdx + 1] : undefined;
+
+const smallFileThresholdIdx = args.indexOf('--small-file-threshold');
+if (smallFileThresholdIdx !== -1) {
+  const raw = args[smallFileThresholdIdx + 1];
+  const value = raw === undefined ? NaN : Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    process.stderr.write('Error: --small-file-threshold requires a non-negative integer (bytes)\n');
+    process.exit(1);
+  }
+  process.env.SMALL_FILE_BYTES_THRESHOLD = String(value);
+}
 
 /**
  * CLI entry point for check-leaks-passwords.

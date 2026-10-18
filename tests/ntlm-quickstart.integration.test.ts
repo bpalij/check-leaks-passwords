@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import http from 'http';
 
 import { vi } from 'vitest';
@@ -14,9 +13,9 @@ import type { ConfigInterface, PasswordObject, PasswordObjectWithHash } from '..
 import { NTLM_HEX_LENGTH } from '../src/constants.js';
 import { FIXTURES_DIR } from './helpers/fixturesDir.js';
 import { ntlm } from './helpers/ntlm.js';
+import { makeTestDir, makeTestFilePath } from './helpers/testTmp.js';
 
 const fixturesDir = FIXTURES_DIR;
-const outDir = path.join(import.meta.dirname, '__output__');
 
 /** NTLM reference vectors (quickstart.md). */
 const NTLM_CORPUS = new Map<string, number>([
@@ -43,19 +42,23 @@ function makeConfig(overrides: Partial<ConfigInterface> = {}): ConfigInterface {
     singleFileReadMode: 'auto',
     buildIndex: false,
     includeSecrets: true,
-    outputs: [{ format: 'json', path: path.join(outDir, `quickstart-${Date.now()}.json`) }],
+    outputs: [{ format: 'json', path: makeTestFilePath(`quickstart-${Date.now()}.json`) }],
     ...overrides,
   };
 }
 
 function tmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'ntlm-quickstart-'));
+  return makeTestDir('ntlm-quickstart-');
 }
 
 function createNtlmApiServer(hashToCount: Map<string, number>) {
   const requestedPrefixes: string[] = [];
+  const rawUrls: string[] = [];
   const server = http.createServer((req, res) => {
-    const prefix = (req.url ?? '').replace('/', '');
+    const raw = req.url ?? '';
+    rawUrls.push(raw);
+    // Strip the query string (e.g. `?mode=ntlm`) so only the path prefix is matched.
+    const prefix = raw.replace('/', '').split('?')[0];
     requestedPrefixes.push(prefix);
     const lines: string[] = [];
     hashToCount.forEach((count, fullHash) => {
@@ -64,13 +67,20 @@ function createNtlmApiServer(hashToCount: Map<string, number>) {
     res.writeHead(200, { 'cf-cache-status': 'MISS' });
     res.end(lines.join('\n'));
   });
-  return new Promise<{ url: string; prefixes: string[]; close: () => Promise<void> }>((resolve) => {
+  type NtlmApiServer = {
+    url: string;
+    prefixes: string[];
+    rawUrls: string[];
+    close: () => Promise<void>;
+  };
+  return new Promise<NtlmApiServer>((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       if (!addr || typeof addr === 'string') throw new Error('Server has no address');
       resolve({
         url: `http://127.0.0.1:${addr.port}/`,
         prefixes: requestedPrefixes,
+        rawUrls,
         close: () => new Promise<void>((res, rej) => {
           server.close((err) => (err ? rej(err) : res()));
         }),
@@ -81,7 +91,7 @@ function createNtlmApiServer(hashToCount: Map<string, number>) {
 
 describe('NTLM quickstart harness — scenarios 1-7', () => {
   it('scenario 1: explicit NTLM with a single-file corpus', async () => {
-    const outputPath = path.join(outDir, `qs1-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`qs1-${Date.now()}.json`);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
       await checkPasswordsLeaks(makeConfig({
@@ -103,7 +113,7 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
   });
 
   it('scenario 2: auto-detection with an NTLM corpus resolves to ntlm', async () => {
-    const outputPath = path.join(outDir, `qs2-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`qs2-${Date.now()}.json`);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
       await checkPasswordsLeaks(makeConfig({
@@ -121,7 +131,7 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
   });
 
   it('scenario 3: default run with a SHA-1 corpus is backward compatible', async () => {
-    const outputPath = path.join(outDir, `qs3-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`qs3-${Date.now()}.json`);
     try {
       await checkPasswordsLeaks(makeConfig({
         inputPath: path.join(fixturesDir, 'sample.csv'),
@@ -155,7 +165,7 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
   });
 
   it('scenario 5: mismatch in warn mode self-corrects to the detected type', async () => {
-    const outputPath = path.join(outDir, `qs5-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`qs5-${Date.now()}.json`);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
@@ -211,13 +221,19 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
       server.prefixes.forEach((p) => {
         expect(p).toMatch(/^[0-9a-fA-F]{5}$/);
       });
+      // NTLM mode must opt into the API's NTLM corpus, otherwise the endpoint
+      // returns SHA-1 suffixes and every password is silently reported as safe.
+      expect(server.rawUrls.length).toBeGreaterThan(0);
+      server.rawUrls.forEach((u) => {
+        expect(u).toContain('mode=ntlm');
+      });
     } finally {
       await server.close();
     }
   });
 
   it('scenario 7: auto-detection with an NTLM split-prefix directory', async () => {
-    const outputPath = path.join(outDir, `qs7-${Date.now()}.json`);
+    const outputPath = makeTestFilePath(`qs7-${Date.now()}.json`);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
       await checkPasswordsLeaks(makeConfig({

@@ -1,6 +1,5 @@
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import crypto from 'crypto';
 
 import { vi } from 'vitest';
@@ -8,12 +7,17 @@ import { vi } from 'vitest';
 import { processDataLeaks } from './processDataLeaks.js';
 import * as determineOptimalChunkCountModule from '../memory/determineOptimalChunkCount.js';
 import type { PasswordObject } from '../types.js';
-import { SMALL_FILE_BYTES_THRESHOLD } from '../constants.js';
 import { FIXTURES_DIR } from '../../tests/helpers/fixturesDir.js';
 import { makeMap } from '../../tests/helpers/makeMap.js';
 import { writeLargeSha1Corpus } from '../../tests/helpers/largeCorpus.js';
+import { makeTestDir } from '../../tests/helpers/testTmp.js';
 
 const fixturesDir = FIXTURES_DIR;
+
+// A corpus above the (overridden) sortedness threshold is required to build an
+// `.idx`; 96 KiB clears the 80 KiB non-overlap floor.
+const SMALL_CORPUS_BYTES = 96 * 1024;
+const SMALL_FILE_THRESHOLD_ENV = '65536';
 
 describe('processDataLeaks', () => {
   it('dispatches to processSingleFile for a file path and returns matching hashes', async () => {
@@ -149,15 +153,17 @@ describe('processDataLeaks', () => {
 
   describe('build index end-to-end', () => {
     it('creates .idx file and index mode reads it', { timeout: 120000 }, async () => {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-idx-'));
+      const tmpDir = makeTestDir('dwl-idx-');
+      const savedThreshold = process.env.SMALL_FILE_BYTES_THRESHOLD;
+      process.env.SMALL_FILE_BYTES_THRESHOLD = SMALL_FILE_THRESHOLD_ENV;
       try {
         const hashFile = path.join(tmpDir, 'hashes.txt');
-        // A `.idx` is only built for verified-sorted input, which requires a
-        // corpus at or above the 1 GiB sortedness threshold.
+        // A `.idx` is only built for verified-sorted input, so the corpus is
+        // kept above the overridden threshold to run the live sortedness check.
         const { matches } = writeLargeSha1Corpus(
           hashFile,
-          SMALL_FILE_BYTES_THRESHOLD + 64 * 1024 * 1024,
-          [100],
+          SMALL_CORPUS_BYTES,
+          [256],
           7,
         );
 
@@ -178,6 +184,8 @@ describe('processDataLeaks', () => {
         const idxStat = fs.statSync(idxPath);
         expect(idxStat.size).toBeGreaterThan(0);
       } finally {
+        if (savedThreshold === undefined) delete process.env.SMALL_FILE_BYTES_THRESHOLD;
+        else process.env.SMALL_FILE_BYTES_THRESHOLD = savedThreshold;
         fs.rmSync(tmpDir, { recursive: true });
       }
     });
@@ -185,7 +193,7 @@ describe('processDataLeaks', () => {
 
   describe('generated dataset', () => {
     it('matches known hashes and returns no results for unknown hashes', async () => {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dwl-gen-'));
+      const tmpDir = makeTestDir('dwl-gen-');
       try {
         const hashFile = path.join(tmpDir, 'generated-hashes.txt');
         const knownHashes: Array<{ hash: string; count: number }> = [];

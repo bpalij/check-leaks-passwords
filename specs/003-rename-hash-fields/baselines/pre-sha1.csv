@@ -1,0 +1,4 @@
+name,folderName,login_username,login_password_hash,login_password_hash_type,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks,hasTotp,folder
+Test Site,Social,user1@example.com,CBFDAC6008F9CAB4083784CBD1874F76618D2A97,sha1,1000,1 000,1K,false,Social
+Other Site,Work,user2@example.com,B7A875FC1EA228B9061041B7CEC4BD3C52AB3CE3,sha1,500,500,500,false,Work
+Third Site,Finance,user3@example.com,076D3E6C4B9F654B5B220B9045B7458AB6B4CBC6,sha1,250,250,250,false,Finance

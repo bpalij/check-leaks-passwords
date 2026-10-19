@@ -1,0 +1,5 @@
+name,typeLabel,type,login_username,login_password_ntlm,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks,hasTotp,reprompt,repromptLabel,favorite,hasPasskey,hasCustomFields
+Ntlm Numeric,Login,1,b@example.com,32ED87BDB5FDC5E9CBA88547376818D4,37281043,37 281 043,37.28M,false,0,None,false,false,false
+Ntlm Letmein,Login,1,c@example.com,BECEDB42EC3C5C7F965255338BE4453C,250000,250 000,250K,false,0,None,false,false,false
+Ntlm Password,Login,1,a@example.com,8846F7EAEE8FB117AD06BDD830B7586C,99999,99 999,100K,false,0,None,false,false,false
+Ntlm Password123,Login,1,d@example.com,A9FDFA038C4B75EBC76DC855DD74F0DA,1000,1 000,1K,false,0,None,false,false,false

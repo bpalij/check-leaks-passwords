@@ -13,6 +13,7 @@ import { sha1 } from './helpers/sha1.js';
 import { ntlm } from './helpers/ntlm.js';
 import { writeLargeSha1Corpus } from './helpers/largeCorpus.js';
 import { makeTestDir, makeTestFilePath } from './helpers/testTmp.js';
+import { assertLegacyFieldsAbsent, assertSingleAlgorithmToken } from './helpers/outputFields.js';
 
 vi.hoisted(() => {
   process.env.UV_THREADPOOL_SIZE = '42';
@@ -83,7 +84,7 @@ describe('checkPasswordsLeaks integration', () => {
       expect(jsonOutput).toHaveLength(3);
       expect(jsonOutput[0].leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
-      expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+      expect(jsonOutput[0].passwordObjects[0].login_password_sha1).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
       expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
       expect(jsonOutput[1].leaks).toBe(500);
@@ -124,7 +125,7 @@ describe('checkPasswordsLeaks integration', () => {
       expect(jsonOutput).toHaveLength(2);
       expect(jsonOutput[0].leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login.password).toBe('password123');
-      expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+      expect(jsonOutput[0].passwordObjects[0].login_password_sha1).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
       expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
       expect(jsonOutput[0].passwordObjects[0].folderName).toBe('Social');
@@ -280,7 +281,7 @@ describe('checkPasswordsLeaks integration', () => {
     try {
       await checkPasswordsLeaks(cfg);
 
-      const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8')) as Array<{ leaks: number; hash: string }>;
+      const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8')) as Array<{ leaks: number; hash_sha1: string }>;
       expect(output).toHaveLength(3);
       for (let i = 1; i < output.length; i += 1) {
         expect(output[i - 1].leaks).toBeGreaterThanOrEqual(output[i].leaks);
@@ -313,7 +314,7 @@ describe('checkPasswordsLeaks integration', () => {
       expect(jsonOutput).toHaveLength(3);
       expect(jsonOutput[0].leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login_password).toBe('password123');
-      expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+      expect(jsonOutput[0].passwordObjects[0].login_password_sha1).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
       expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
       expect(jsonOutput[1].leaks).toBe(500);
@@ -354,7 +355,7 @@ describe('checkPasswordsLeaks integration', () => {
       expect(jsonOutput).toHaveLength(2);
       expect(jsonOutput[0].leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login.password).toBe('password123');
-      expect(jsonOutput[0].passwordObjects[0].login_password_hash).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
+      expect(jsonOutput[0].passwordObjects[0].login_password_sha1).toBe('CBFDAC6008F9CAB4083784CBD1874F76618D2A97');
       expect(jsonOutput[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(jsonOutput[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
       expect(jsonOutput[0].passwordObjects[0].folderName).toBe('Social');
@@ -506,7 +507,7 @@ describe('checkPasswordsLeaks integration', () => {
       matchingPasswords.forEach((mp) => {
         const entry = findEntryByPw(mp.pw);
         expect(entry).toBeDefined();
-        const hashLookup = hashEntries.find((he) => he.hash === entry.hash);
+        const hashLookup = hashEntries.find((he) => he.hash === entry.hash_sha1);
         expect(hashLookup).toBeDefined();
         expect(entry.leaks).toBe(hashLookup!.leaks);
         expect(entry.passwordObjects[0].login_username).toBe(mp.username);
@@ -589,7 +590,7 @@ describe('checkPasswordsLeaks integration', () => {
       validPasswords.forEach((vp) => {
         const entry = findEntryByPw2(vp.pw);
         expect(entry).toBeDefined();
-        const hashLookup = hashEntries.find((he) => he.hash === entry.hash);
+        const hashLookup = hashEntries.find((he) => he.hash === entry.hash_sha1);
         expect(hashLookup).toBeDefined();
         expect(entry.leaks).toBe(hashLookup!.leaks);
       });
@@ -642,7 +643,7 @@ describe('checkPasswordsLeaks integration', () => {
 
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(output).toHaveLength(1);
-      expect(output[0].hash).toBe(hash);
+      expect(output[0].hash_sha1).toBe(hash);
       expect(output[0].leaks).toBe(leaks);
       expect(output[0].passwordObjects).toHaveLength(3);
       expect(output[0].passwordObjects[0].login_password).toBe(dupPassword);
@@ -925,7 +926,7 @@ describe('checkPasswordsLeaks integration', () => {
     }
   });
 
-  it('NTLM run reports hash type in summary and per-record outputs', async () => {
+  it('NTLM run reports hash type in summary and names per-record hash fields ntlm', async () => {
     const outputPath = makeTestFilePath(`ntlm-${Date.now()}.json`);
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
@@ -938,7 +939,8 @@ describe('checkPasswordsLeaks integration', () => {
 
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(output.length).toBeGreaterThan(0);
-      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      expect(output[0].passwordObjects[0].login_password_ntlm).toBeDefined();
+      expect(output[0].hash_ntlm).toBeDefined();
       const printed = writeSpy.mock.calls.map((c) => String(c[0])).join('');
       expect(printed).toContain('Hash type: ntlm (explicit)');
     } finally {
@@ -990,10 +992,10 @@ describe('checkPasswordsLeaks integration', () => {
 
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(output).toHaveLength(1);
-      expect(output[0].hash).toBe(matchHash);
+      expect(output[0].hash_ntlm).toBe(matchHash);
       expect(output[0].leaks).toBe(12345);
       expect(output[0].passwordObjects[0].login_password).toBe('password123');
-      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      expect(output[0].passwordObjects[0].login_password_ntlm).toBeDefined();
     } finally {
       writeSpy.mockRestore();
       try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
@@ -1300,6 +1302,25 @@ describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)'
       expect(err).toContain('HASH_TYPE=ntlm');
       expect(out).toContain('Hash type: sha1 (auto not applicable in API mode)');
       expect(out).toContain('Notice:');
+
+      // SC-005 API-mode half: the effective (api-default sha1) token names
+      // the hash fields in the written output file.
+      const written = JSON.parse(fs.readFileSync(outputPath, 'utf-8')) as Array<Record<string, unknown>>;
+      expect(written.length).toBeGreaterThan(0);
+      written.forEach((group) => {
+        expect(Object.keys(group)).toContain('hash_sha1');
+        (group.passwordObjects as Array<Record<string, unknown>>).forEach((record) => {
+          expect(Object.keys(record)).toContain('login_password_sha1');
+        });
+      });
+      const writtenFields = written.flatMap(
+        (group) => Object.keys(group).flatMap((key) => (key === 'passwordObjects'
+          ? (group.passwordObjects as Array<Record<string, unknown>>)
+            .flatMap((obj) => Object.keys(obj))
+          : [key])),
+      );
+      assertSingleAlgorithmToken(writtenFields);
+      assertLegacyFieldsAbsent(writtenFields);
     } finally {
       try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
     }
@@ -1326,7 +1347,11 @@ describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)'
       const corrected = JSON.parse(fs.readFileSync(correctedPath, 'utf-8'));
       const explicit = JSON.parse(fs.readFileSync(explicitPath, 'utf-8'));
       expect(corrected).toEqual(explicit);
-      expect(corrected[0].passwordObjects[0].login_password_hash_type).toBe('sha1');
+      // SC-005: names carry the effective (corrected sha1) token, not the
+      // requested ntlm one.
+      expect(corrected[0].hash_sha1).toBeDefined();
+      expect(corrected[0].passwordObjects[0].login_password_sha1).toBeDefined();
+      expect(corrected[0].passwordObjects[0]).not.toHaveProperty('login_password_ntlm');
 
       const err = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
       const out = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
@@ -1405,14 +1430,18 @@ describe('checkPasswordsLeaks — hash-type governance and API notice (US2/US3)'
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(output).toHaveLength(4);
       const byHash = new Map(
-        output.map((r: { hash: string; leaks: number }) => [r.hash, r.leaks]),
+        output.map((r: { hash_ntlm: string; leaks: number }) => [r.hash_ntlm, r.leaks]),
       );
       expect(byHash.get(ntlm('password'))).toBe(99999);
       expect(byHash.get(ntlm('123456'))).toBe(37281043);
       expect(byHash.get(ntlm('letmein'))).toBe(250000);
       expect(byHash.get(ntlm('password123'))).toBe(1000);
-      output.forEach((r: { passwordObjects: Array<{ login_password_hash_type: string }> }) => {
-        expect(r.passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      output.forEach((r: {
+        hash_ntlm: string;
+        passwordObjects: Array<Record<string, unknown>>;
+      }) => {
+        expect(r.hash_ntlm).toBeDefined();
+        expect(r.passwordObjects[0].login_password_ntlm).toBeDefined();
       });
 
       // Without `?mode=ntlm` the buggy code would hit the SHA-1 corpus and

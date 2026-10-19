@@ -148,13 +148,20 @@ export type OnProgress = (update: ProgressUpdate) => void;
  *
  * @property includeSecrets - When true, plaintext passwords and TOTP secrets
  *   are included in the output. ⚠️ INSECURE — secrets written to disk.
- * @property hashType - Effective hash type for the run, written per record as
- *   `login_password_hash_type`. Defaults to `sha1` when omitted.
+ * @property hashType - Effective hash type for the run; the sole input to
+ *   output field naming — hash-value fields are emitted as
+ *   `login_password_<alg>` (record) and `hash_<alg>` (JSON group), where
+ *   `<alg>` is this value. Defaults to `sha1` when omitted.
  */
 export type OutputHandlerOptions = {
   /** Whether to include plaintext secrets in the output. Defaults to false. */
   includeSecrets?: boolean;
-  /** Effective hash type actually used for matching (reflects self-correction). */
+  /**
+   * Effective hash type actually used for matching (reflects self-correction).
+   *
+   * Names the hash-value output fields: `login_password_<alg>` per record
+   * and `hash_<alg>` per JSON group. No separate hash-type field is emitted.
+   */
   hashType?: 'sha1' | 'ntlm';
 };
 

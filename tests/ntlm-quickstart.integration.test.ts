@@ -99,12 +99,14 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
         outputs: [{ format: 'json', path: outputPath }],
       }));
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-      const byHash = new Map(output.map((e: { hash: string; leaks: number }) => [e.hash, e.leaks]));
+      const byHash = new Map(
+        output.map((e: { hash_ntlm: string; leaks: number }) => [e.hash_ntlm, e.leaks]),
+      );
       EXPECTED_MATCHES.forEach((count, hash) => {
         expect(byHash.get(hash)).toBe(count);
       });
       expect(output).toHaveLength(EXPECTED_MATCHES.size);
-      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      expect(output[0].passwordObjects[0].login_password_ntlm).toBeDefined();
       expect(stdoutSpy.mock.calls.map((c) => String(c[0])).join('')).toContain('Hash type: ntlm (explicit)');
     } finally {
       stdoutSpy.mockRestore();
@@ -122,7 +124,7 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
       }));
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(output).toHaveLength(EXPECTED_MATCHES.size);
-      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      expect(output[0].passwordObjects[0].login_password_ntlm).toBeDefined();
       expect(stdoutSpy.mock.calls.map((c) => String(c[0])).join('')).toContain('Hash type: ntlm (detected)');
     } finally {
       stdoutSpy.mockRestore();
@@ -142,7 +144,7 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(output).toHaveLength(3);
       expect(output[0].leaks).toBe(1000);
-      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('sha1');
+      expect(output[0].passwordObjects[0].login_password_sha1).toBeDefined();
     } finally {
       try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
     }
@@ -177,7 +179,9 @@ describe('NTLM quickstart harness — scenarios 1-7', () => {
         outputs: [{ format: 'json', path: outputPath }],
       }));
       const output = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-      expect(output[0].passwordObjects[0].login_password_hash_type).toBe('sha1');
+      // SC-005: corrected (effective sha1) token, never the requested ntlm.
+      expect(output[0].passwordObjects[0].login_password_sha1).toBeDefined();
+      expect(output[0].passwordObjects[0]).not.toHaveProperty('login_password_ntlm');
       expect(stdoutSpy.mock.calls.map((c) => String(c[0])).join('')).toContain('Hash type: sha1 (corrected from ntlm)');
       expect(stderrSpy.mock.calls.map((c) => String(c[0])).join('')).toContain('sha1');
     } finally {

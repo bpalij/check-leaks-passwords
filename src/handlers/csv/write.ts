@@ -5,8 +5,13 @@ import { formatCompact } from '../../formatting/formatCompact.js';
 import { stripSensitiveFields } from '../stripSensitiveFields.js';
 import type { HashWithLeaksAndPasswordObjects, OutputHandlerOptions } from '../../types.js';
 
-/** Preferred column ordering for CSV output. */
-const COLUMNS_ORDER = [
+/**
+ * Base column ordering for CSV output, without the hash-value column.
+ *
+ * The hash column is algorithm-named (`login_password_<alg>`) and spliced
+ * in by {@link buildCsvColumnOrder}.
+ */
+const CSV_COLUMNS_BASE = [
   'name',
   'folderName',
   'typeLabel',
@@ -14,8 +19,6 @@ const COLUMNS_ORDER = [
   'login_uris',
   'login_username',
   'login_password',
-  'login_password_hash',
-  'login_password_hash_type',
   'login_password_leaks',
   'login_password_readable_leaks',
   'login_password_compact_leaks',
@@ -29,6 +32,24 @@ const COLUMNS_ORDER = [
   'organizationId',
   'deletedDate',
 ];
+
+/**
+ * Build the CSV column ordering for a given effective hash type.
+ *
+ * Splices the algorithm-named hash column `login_password_<alg>` directly
+ * after `login_password` — the position formerly held by the generic hash
+ * column — so position retention (FR-006) holds for both
+ * `sha1` and `ntlm` runs.
+ *
+ * @param hashType - Effective hash type of the run (`sha1` or `ntlm`).
+ * @returns Ordered array of CSV column names for this run.
+ */
+function buildCsvColumnOrder(hashType: 'sha1' | 'ntlm'): string[] {
+  const columns = [...CSV_COLUMNS_BASE];
+  const loginPasswordIndex = columns.indexOf('login_password');
+  columns.splice(loginPasswordIndex + 1, 0, `login_password_${hashType}`);
+  return columns;
+}
 
 /**
  * Flatten a password object (nested or flat) into a single-row record.
@@ -92,14 +113,18 @@ function flattenNestedRow(row: Record<string, unknown>): Record<string, string> 
 /**
  * Determine which columns to include in the CSV output.
  *
- * Columns are ordered by COLUMNS_ORDER first, then any remaining
+ * Columns are ordered by the given column order first, then any remaining
  * columns are appended alphabetically. Only columns with at least
  * one non-empty value are included.
  *
  * @param rows - The flattened rows to determine columns from.
+ * @param columnOrder - Preferred column ordering for this run.
  * @returns Ordered array of active column names.
  */
-function determineActiveColumns(rows: Array<Record<string, string>>): string[] {
+function determineActiveColumns(
+  rows: Array<Record<string, string>>,
+  columnOrder: string[],
+): string[] {
   const columnValueMap: Record<string, string[]> = {};
   rows.forEach((row) => {
     Object.entries(row).forEach(([key, val]) => {
@@ -110,8 +135,8 @@ function determineActiveColumns(rows: Array<Record<string, string>>): string[] {
   const presentColumns = Object.entries(columnValueMap)
     .filter(([, vals]) => vals.some((v) => v !== ''))
     .map(([key]) => key);
-  const ordered = COLUMNS_ORDER.filter((col) => presentColumns.includes(col));
-  const remaining = presentColumns.filter((col) => !COLUMNS_ORDER.includes(col));
+  const ordered = columnOrder.filter((col) => presentColumns.includes(col));
+  const remaining = presentColumns.filter((col) => !columnOrder.includes(col));
   return [...ordered, ...remaining];
 }
 
@@ -145,8 +170,7 @@ export const writePreparedDataToCsv = (
     return passwordObjects.map((obj) => {
       const enriched = {
         ...obj,
-        login_password_hash: hash,
-        login_password_hash_type: hashType,
+        [`login_password_${hashType}`]: hash,
         login_password_leaks: String(leaks),
         login_password_readable_leaks: formatNumber(leaks),
         login_password_compact_leaks: formatCompact(leaks),
@@ -160,7 +184,7 @@ export const writePreparedDataToCsv = (
     });
   });
 
-  const activeColumns = determineActiveColumns(rows);
+  const activeColumns = determineActiveColumns(rows, buildCsvColumnOrder(hashType));
 
   return new Promise((resolve, reject) => {
     writeToPath(path, rows, { headers: activeColumns })

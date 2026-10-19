@@ -14,6 +14,9 @@ import type {
 } from '../../types.js';
 import { FIXTURES_DIR } from '../../../tests/helpers/fixturesDir.js';
 import { makeTestFilePath } from '../../../tests/helpers/testTmp.js';
+import {
+  assertLegacyFieldsAbsent, assertSingleAlgorithmToken,
+} from '../../../tests/helpers/outputFields.js';
 
 const fixturesDir = FIXTURES_DIR;
 
@@ -210,10 +213,32 @@ describe('CSV output handler', () => {
     try {
       await writePreparedDataToCsv(tmpFile, makeSampleData(), { includeSecrets: true });
       const content = fs.readFileSync(tmpFile, 'utf-8');
-      expect(content).toContain('name,login_password,login_password_hash,login_password_hash_type,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks');
-      expect(content).toContain('site1,pass1,ABC123,sha1,1000,1 000,1K');
-      expect(content).toContain('site2,pass2,ABC123,sha1,1000,1 000,1K');
-      expect(content).toContain('site3,pass3,DEF456,sha1,500,500,500');
+      // Algorithm-named hash column retains the former hash column's
+      // position (FR-006); the legacy hash-type field is no longer emitted.
+      expect(content).toContain('name,login_password,login_password_sha1,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks');
+      expect(content).toContain('site1,pass1,ABC123,1000,1 000,1K');
+      expect(content).toContain('site2,pass2,ABC123,1000,1 000,1K');
+      expect(content).toContain('site3,pass3,DEF456,500,500,500');
+      const columns = content.split('\n')[0].split(',');
+      assertSingleAlgorithmToken(columns);
+      assertLegacyFieldsAbsent(columns);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+    }
+  });
+
+  it('names the hash column with the ntlm token when hashType is ntlm', async () => {
+    const tmpFile = makeTestFilePath(`test-output-ntlm-${Date.now()}.csv`);
+    try {
+      await writePreparedDataToCsv(tmpFile, makeSampleData(), { includeSecrets: true, hashType: 'ntlm' });
+      const content = fs.readFileSync(tmpFile, 'utf-8');
+      expect(content).toContain('name,login_password,login_password_ntlm,login_password_leaks,login_password_readable_leaks,login_password_compact_leaks');
+      expect(content).toContain('site1,pass1,ABC123,1000,1 000,1K');
+      expect(content).toContain('site3,pass3,DEF456,500,500,500');
+      expect(content).not.toContain('login_password_sha1');
+      const columns = content.split('\n')[0].split(',');
+      assertSingleAlgorithmToken(columns);
+      assertLegacyFieldsAbsent(columns);
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }

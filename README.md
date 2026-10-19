@@ -74,7 +74,7 @@ Detection is always content-based and never uses file names. When `auto` cannot 
 | `error` **(default)** | Abort before scanning with a message naming the requested and detected types. |
 | `warn` | Emit a prominent warning (to stderr and the summary), self-correct to the detected type, and produce correct results. |
 
-In both modes an ambiguous or unreadable corpus is a hard error. The effective type actually used is recorded on every result (`login_password_hash_type` in JSON and CSV) and shown in the console summary. SHA-1 behavior is unchanged when no NTLM selection is made. `.idx` index files record the hash type and file size they were built for; an index built for a different type or size is treated as stale and rebuilt.
+In both modes an ambiguous or unreadable corpus is a hard error. The effective type actually used names the hash-value fields in JSON and CSV output — `login_password_sha1`/`login_password_ntlm` per record and `hash_sha1`/`hash_ntlm` per JSON group — and is shown in the console summary. SHA-1 behavior is unchanged when no NTLM selection is made. `.idx` index files record the hash type and file size they were built for; an index built for a different type or size is treated as stale and rebuilt.
 
 ### `READ_MODE_FORCED` Error Behavior
 
@@ -241,7 +241,7 @@ By default (`INCLUDE_SECRETS=false`), the output files **exclude all inherent se
 
 **Always included:**
 
-`name`, `folderName`, `typeLabel`, `login_username`, `login_uris`, `login_password_hash`, leak counts (`login_password_leaks`, `login_password_readable_leaks`, `login_password_compact_leaks`), `hasTotp`, `hasPasskey`, `uriCount`, `passwordAgeDays`, `notes`, `fields`, and all other identification metadata.
+`name`, `folderName`, `typeLabel`, `login_username`, `login_uris`, the algorithm-named hash (`login_password_sha1` or `login_password_ntlm`), leak counts (`login_password_leaks`, `login_password_readable_leaks`, `login_password_compact_leaks`), `hasTotp`, `hasPasskey`, `uriCount`, `passwordAgeDays`, `notes`, `fields`, and all other identification metadata.
 
 To include secrets, set `INCLUDE_SECRETS=true` in `.env` or use the `--include-secrets` CLI flag. This is marked as ⚠️ **INSECURE** — sensitive data will be written to disk as plaintext.
 

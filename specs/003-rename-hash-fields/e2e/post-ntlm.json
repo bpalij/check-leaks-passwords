@@ -1,0 +1,98 @@
+[
+  {
+    "hash_ntlm": "32ED87BDB5FDC5E9CBA88547376818D4",
+    "leaks": 37281043,
+    "passwordObjects": [
+      {
+        "name": "Ntlm Numeric",
+        "typeLabel": "Login",
+        "login": {
+          "username": "b@example.com"
+        },
+        "login_password_ntlm": "32ED87BDB5FDC5E9CBA88547376818D4",
+        "login_password_leaks": 37281043,
+        "login_password_readable_leaks": "37 281 043",
+        "login_password_compact_leaks": "37.28M",
+        "hasTotp": false,
+        "hasPasskey": false,
+        "hasCustomFields": false,
+        "favorite": false,
+        "type": 1,
+        "reprompt": 0,
+        "repromptLabel": "None"
+      }
+    ]
+  },
+  {
+    "hash_ntlm": "BECEDB42EC3C5C7F965255338BE4453C",
+    "leaks": 250000,
+    "passwordObjects": [
+      {
+        "name": "Ntlm Letmein",
+        "typeLabel": "Login",
+        "login": {
+          "username": "c@example.com"
+        },
+        "login_password_ntlm": "BECEDB42EC3C5C7F965255338BE4453C",
+        "login_password_leaks": 250000,
+        "login_password_readable_leaks": "250 000",
+        "login_password_compact_leaks": "250K",
+        "hasTotp": false,
+        "hasPasskey": false,
+        "hasCustomFields": false,
+        "favorite": false,
+        "type": 1,
+        "reprompt": 0,
+        "repromptLabel": "None"
+      }
+    ]
+  },
+  {
+    "hash_ntlm": "8846F7EAEE8FB117AD06BDD830B7586C",
+    "leaks": 99999,
+    "passwordObjects": [
+      {
+        "name": "Ntlm Password",
+        "typeLabel": "Login",
+        "login": {
+          "username": "a@example.com"
+        },
+        "login_password_ntlm": "8846F7EAEE8FB117AD06BDD830B7586C",
+        "login_password_leaks": 99999,
+        "login_password_readable_leaks": "99 999",
+        "login_password_compact_leaks": "100K",
+        "hasTotp": false,
+        "hasPasskey": false,
+        "hasCustomFields": false,
+        "favorite": false,
+        "type": 1,
+        "reprompt": 0,
+        "repromptLabel": "None"
+      }
+    ]
+  },
+  {
+    "hash_ntlm": "A9FDFA038C4B75EBC76DC855DD74F0DA",
+    "leaks": 1000,
+    "passwordObjects": [
+      {
+        "name": "Ntlm Password123",
+        "typeLabel": "Login",
+        "login": {
+          "username": "d@example.com"
+        },
+        "login_password_ntlm": "A9FDFA038C4B75EBC76DC855DD74F0DA",
+        "login_password_leaks": 1000,
+        "login_password_readable_leaks": "1 000",
+        "login_password_compact_leaks": "1K",
+        "hasTotp": false,
+        "hasPasskey": false,
+        "hasCustomFields": false,
+        "favorite": false,
+        "type": 1,
+        "reprompt": 0,
+        "repromptLabel": "None"
+      }
+    ]
+  }
+]

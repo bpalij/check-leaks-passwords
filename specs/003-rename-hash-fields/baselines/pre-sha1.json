@@ -1,0 +1,56 @@
+[
+  {
+    "hash": "CBFDAC6008F9CAB4083784CBD1874F76618D2A97",
+    "leaks": 1000,
+    "passwordObjects": [
+      {
+        "name": "Test Site",
+        "folderName": "Social",
+        "login_username": "user1@example.com",
+        "login_password_hash": "CBFDAC6008F9CAB4083784CBD1874F76618D2A97",
+        "login_password_hash_type": "sha1",
+        "login_password_leaks": 1000,
+        "login_password_readable_leaks": "1 000",
+        "login_password_compact_leaks": "1K",
+        "hasTotp": false,
+        "folder": "Social"
+      }
+    ]
+  },
+  {
+    "hash": "B7A875FC1EA228B9061041B7CEC4BD3C52AB3CE3",
+    "leaks": 500,
+    "passwordObjects": [
+      {
+        "name": "Other Site",
+        "folderName": "Work",
+        "login_username": "user2@example.com",
+        "login_password_hash": "B7A875FC1EA228B9061041B7CEC4BD3C52AB3CE3",
+        "login_password_hash_type": "sha1",
+        "login_password_leaks": 500,
+        "login_password_readable_leaks": "500",
+        "login_password_compact_leaks": "500",
+        "hasTotp": false,
+        "folder": "Work"
+      }
+    ]
+  },
+  {
+    "hash": "076D3E6C4B9F654B5B220B9045B7458AB6B4CBC6",
+    "leaks": 250,
+    "passwordObjects": [
+      {
+        "name": "Third Site",
+        "folderName": "Finance",
+        "login_username": "user3@example.com",
+        "login_password_hash": "076D3E6C4B9F654B5B220B9045B7458AB6B4CBC6",
+        "login_password_hash_type": "sha1",
+        "login_password_leaks": 250,
+        "login_password_readable_leaks": "250",
+        "login_password_compact_leaks": "250",
+        "hasTotp": false,
+        "folder": "Finance"
+      }
+    ]
+  }
+]

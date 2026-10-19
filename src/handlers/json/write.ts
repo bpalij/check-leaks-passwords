@@ -5,14 +5,18 @@ import { formatCompact } from '../../formatting/formatCompact.js';
 import { stripSensitiveFields } from '../stripSensitiveFields.js';
 import type { HashWithLeaksAndPasswordObjects, OutputHandlerOptions } from '../../types.js';
 
-/** Key ordering for nested (login) password objects. */
-const JSON_KEY_ORDER_NESTED = [
+/**
+ * Base key ordering for nested (login) password objects, without the
+ * hash-value key.
+ *
+ * The hash key is algorithm-named (`login_password_<alg>`) and spliced in
+ * by {@link buildJsonKeyOrderNested}.
+ */
+const JSON_KEY_ORDER_NESTED_BASE = [
   'name',
   'folderName',
   'typeLabel',
   'login',
-  'login_password_hash',
-  'login_password_hash_type',
   'login_password_leaks',
   'login_password_readable_leaks',
   'login_password_compact_leaks',
@@ -38,8 +42,11 @@ const JSON_KEY_ORDER_NESTED = [
   'collectionIds',
 ];
 
-/** Key ordering for flat (CSV-style) password objects. */
-const JSON_KEY_ORDER_FLAT = [
+/**
+ * Base key ordering for flat (CSV-style) password objects, without the
+ * hash-value key. See {@link JSON_KEY_ORDER_NESTED_BASE}.
+ */
+const JSON_KEY_ORDER_FLAT_BASE = [
   'name',
   'folderName',
   'typeLabel',
@@ -47,8 +54,6 @@ const JSON_KEY_ORDER_FLAT = [
   'login_username',
   'login_password',
   'login_totp',
-  'login_password_hash',
-  'login_password_hash_type',
   'login_password_leaks',
   'login_password_readable_leaks',
   'login_password_compact_leaks',
@@ -65,6 +70,37 @@ const JSON_KEY_ORDER_FLAT = [
   'creationDate',
   'archivedDate',
 ];
+
+/**
+ * Build the nested-variant record key ordering for a given hash type.
+ *
+ * Splices `login_password_<alg>` directly after `login` — the position
+ * formerly held by the generic hash key — for position retention (FR-006).
+ *
+ * @param hashType - Effective hash type of the run (`sha1` or `ntlm`).
+ * @returns Ordered array of record keys for this run.
+ */
+function buildJsonKeyOrderNested(hashType: 'sha1' | 'ntlm'): string[] {
+  const keys = [...JSON_KEY_ORDER_NESTED_BASE];
+  keys.splice(keys.indexOf('login') + 1, 0, `login_password_${hashType}`);
+  return keys;
+}
+
+/**
+ * Build the flat-variant record key ordering for a given hash type.
+ *
+ * Splices `login_password_<alg>` directly after `login_totp` — the
+ * position formerly held by the generic hash key — for position retention
+ * (FR-006).
+ *
+ * @param hashType - Effective hash type of the run (`sha1` or `ntlm`).
+ * @returns Ordered array of record keys for this run.
+ */
+function buildJsonKeyOrderFlat(hashType: 'sha1' | 'ntlm'): string[] {
+  const keys = [...JSON_KEY_ORDER_FLAT_BASE];
+  keys.splice(keys.indexOf('login_totp') + 1, 0, `login_password_${hashType}`);
+  return keys;
+}
 
 /** Key ordering for nested login sub-objects. */
 const JSON_KEY_ORDER_LOGIN = [
@@ -131,15 +167,16 @@ function stripEmpty(val: unknown): unknown {
 /**
  * Write enriched leak results to a JSON file.
  *
- * Outputs a flat array with sorted keys and stripped empty values.
- * Each password object is enriched with `login_password_hash`,
+ * Outputs an array of leak groups with sorted keys and stripped empty
+ * values. Group keys are `hash_<alg>`, `leaks`, `passwordObjects`; each
+ * password object is enriched with `login_password_<alg>`,
  * `login_password_leaks`, `login_password_readable_leaks`, and
- * `login_password_compact_leaks`. Sensitive fields are stripped
- * unless `includeSecrets` is true.
+ * `login_password_compact_leaks`, where `<alg>` is the run's effective
+ * hash type. Sensitive fields are stripped unless `includeSecrets` is true.
  *
  * @param path - Path to the output JSON file.
  * @param data - Enriched results with leak counts and password objects.
- * @param options - Output options (e.g., includeSecrets).
+ * @param options - Output options (e.g., includeSecrets, hashType).
  *
  * @security Strips all sensitive fields (passwords, TOTP, FIDO2, passwordHistory)
  *   unless `includeSecrets` is explicitly set to true.
@@ -151,15 +188,17 @@ export const writeJsonOutputFile = async (
 ): Promise<void> => {
   const includeSecrets = options.includeSecrets ?? false;
   const hashType = options.hashType ?? 'sha1';
+  const nestedKeyOrder = buildJsonKeyOrderNested(hashType);
+  const flatKeyOrder = buildJsonKeyOrderFlat(hashType);
 
   const outputData = data.map((group) => ({
-    ...group,
+    [`hash_${hashType}`]: group.hash,
+    leaks: group.leaks,
     passwordObjects: group.passwordObjects
       .map((obj) => {
         const withLeaks = {
           ...obj,
-          login_password_hash: group.hash,
-          login_password_hash_type: hashType,
+          [`login_password_${hashType}`]: group.hash,
           login_password_leaks: group.leaks,
           login_password_readable_leaks: formatNumber(group.leaks),
           login_password_compact_leaks: formatCompact(group.leaks),
@@ -168,7 +207,7 @@ export const writeJsonOutputFile = async (
           ? stripEmpty(withLeaks)
           : stripEmpty(stripSensitiveFields(withLeaks as Record<string, unknown>));
         if (stripped === undefined) return undefined;
-        const keyOrder = 'login' in withLeaks ? JSON_KEY_ORDER_NESTED : JSON_KEY_ORDER_FLAT;
+        const keyOrder = 'login' in withLeaks ? nestedKeyOrder : flatKeyOrder;
         const sorted = sortObjectKeys(stripped as Record<string, unknown>, keyOrder);
         if (sorted.login && typeof sorted.login === 'object') {
           sorted.login = sortObjectKeys(

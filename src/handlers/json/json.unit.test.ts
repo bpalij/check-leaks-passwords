@@ -14,6 +14,9 @@ import type {
 } from '../../types.js';
 import { FIXTURES_DIR } from '../../../tests/helpers/fixturesDir.js';
 import { makeTestDir, makeTestFilePath } from '../../../tests/helpers/testTmp.js';
+import {
+  assertLegacyFieldsAbsent, assertSingleAlgorithmToken,
+} from '../../../tests/helpers/outputFields.js';
 
 const fixturesDir = FIXTURES_DIR;
 
@@ -605,6 +608,17 @@ const makeJsonSampleData = (): HashWithLeaksAndPasswordObjects[] => [
   },
 ];
 
+/**
+ * Collect every group-level and record-level key name of a parsed JSON
+ * output file, for whole-file algorithm-token / legacy-name assertions.
+ *
+ * @param content - Parsed JSON output (array of leak groups).
+ * @returns Every group-level and record-level key name in the file.
+ */
+const collectFileFieldNames = (content: Array<Record<string, unknown>>): string[] => content.flatMap((group) => Object.keys(group).flatMap((key) => (key === 'passwordObjects'
+  ? (group.passwordObjects as Array<Record<string, unknown>>).flatMap((obj) => Object.keys(obj))
+  : [key])));
+
 describe('JSON output handler', () => {
   it('writes data to JSON file correctly', async () => {
     const tmpFile = makeTestFilePath(`test-output-${Date.now()}.json`);
@@ -612,20 +626,28 @@ describe('JSON output handler', () => {
       await writeJsonOutputFile(tmpFile, makeJsonSampleData(), { includeSecrets: true });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
       expect(content).toHaveLength(1);
-      expect(content[0].hash).toBe('ABC123');
+      // Group-level hash field is algorithm-named and pinned as first key (FR-006).
+      expect(Object.keys(content[0])).toEqual([
+        'hash_sha1',
+        'leaks',
+        'passwordObjects',
+      ]);
+      expect(content[0].hash_sha1).toBe('ABC123');
       expect(content[0].leaks).toBe(1000);
       expect(content[0].passwordObjects[0].login_password).toBe('pass1');
-      expect(content[0].passwordObjects[0].login_password_hash).toBe('ABC123');
-      expect(content[0].passwordObjects[0].login_password_hash_type).toBe('sha1');
+      expect(content[0].passwordObjects[0].login_password_sha1).toBe('ABC123');
       expect(content[0].passwordObjects[0].login_password_leaks).toBe(1000);
       expect(content[0].passwordObjects[0].login_password_readable_leaks).toBe('1 000');
       expect(content[0].passwordObjects[0].login_password_compact_leaks).toBe('1K');
+      const fieldNames = collectFileFieldNames(content);
+      assertSingleAlgorithmToken(fieldNames);
+      assertLegacyFieldsAbsent(fieldNames);
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }
   });
 
-  it('records the active hash type in each output record', async () => {
+  it('names hash fields with the ntlm token when hashType is ntlm', async () => {
     const tmpFile = makeTestFilePath(`test-output-ntlm-${Date.now()}.json`);
     try {
       await writeJsonOutputFile(tmpFile, makeJsonSampleData(), {
@@ -633,7 +655,17 @@ describe('JSON output handler', () => {
         hashType: 'ntlm',
       });
       const content = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
-      expect(content[0].passwordObjects[0].login_password_hash_type).toBe('ntlm');
+      expect(Object.keys(content[0])).toEqual([
+        'hash_ntlm',
+        'leaks',
+        'passwordObjects',
+      ]);
+      expect(content[0].hash_ntlm).toBe('ABC123');
+      expect(content[0].passwordObjects[0].login_password_ntlm).toBe('ABC123');
+      expect(content[0].passwordObjects[0]).not.toHaveProperty('login_password_sha1');
+      const fieldNames = collectFileFieldNames(content);
+      assertSingleAlgorithmToken(fieldNames);
+      assertLegacyFieldsAbsent(fieldNames);
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }
@@ -679,7 +711,7 @@ describe('JSON output handler', () => {
       expect(obj.archivedDate).toBeUndefined();
       expect(obj.fields).toBeUndefined();
       expect(obj.passwordHistory).toBeUndefined();
-      expect(obj.login_password_hash).toBe('A');
+      expect(obj.login_password_sha1).toBe('A');
       expect(obj.login_password_leaks).toBe(1);
       expect(obj.login_password_readable_leaks).toBe('1');
       expect(obj.login_password_compact_leaks).toBe('1');
@@ -687,7 +719,7 @@ describe('JSON output handler', () => {
       const obj2 = objs[1];
       expect(obj2.login).toBeUndefined();
       expect(obj2.name).toBeUndefined();
-      expect(obj2.login_password_hash).toBe('A');
+      expect(obj2.login_password_sha1).toBe('A');
       expect(obj2.login_password_leaks).toBe(1);
       expect(obj2.login_password_readable_leaks).toBe('1');
       expect(obj2.login_password_compact_leaks).toBe('1');
@@ -797,7 +829,7 @@ describe('JSON output secure-by-default', () => {
       expect(content).toHaveLength(1);
       expect(content[0].passwordObjects[0]).not.toHaveProperty('login_password');
       expect(content[0].passwordObjects[0].name).toBe('site1');
-      expect(content[0].passwordObjects[0].login_password_hash).toBe('ABC123');
+      expect(content[0].passwordObjects[0].login_password_sha1).toBe('ABC123');
     } finally {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     }

@@ -5,7 +5,7 @@ import jsdoc from 'eslint-plugin-jsdoc';
 import globals from 'globals';
 
 export default [
-  { ignores: ['vitest.config.ts', 'dist/**'] },
+  { ignores: ['vitest.config.ts', 'dist/**', 'coverage/**'] },
   ...tseslint.configs.recommended, // eslint-disable-line import-x/no-named-as-default-member
   importX.flatConfigs.recommended, // eslint-disable-line import-x/no-named-as-default-member
   importX.flatConfigs.typescript, // eslint-disable-line import-x/no-named-as-default-member

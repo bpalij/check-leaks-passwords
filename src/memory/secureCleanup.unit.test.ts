@@ -1,3 +1,5 @@
+import fs from 'fs';
+
 import { vi } from 'vitest';
 
 import {
@@ -8,6 +10,9 @@ import {
 } from './secureCleanup.js';
 
 describe('secureCleanup', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
   describe('zeroBuffer', () => {
     it('fills a buffer with zeros', () => {
       const buf = Buffer.from([
@@ -112,6 +117,7 @@ describe('secureCleanup', () => {
       ]);
       trackBuffer(buf);
 
+      const writeSyncSpy = vi.spyOn(fs, 'writeSync');
       const originalExit = process.exit;
       let exitCalled = false;
       const mockExit = vi.fn(() => {
@@ -122,6 +128,7 @@ describe('secureCleanup', () => {
 
       process.emit('SIGTERM', 'SIGTERM');
       expect(exitCalled).toBe(true);
+      expect(writeSyncSpy).not.toHaveBeenCalled();
       process.exit = originalExit;
     });
 
@@ -154,6 +161,7 @@ describe('secureCleanup', () => {
       ]);
       trackBuffer(buf);
 
+      const writeSyncSpy = vi.spyOn(fs, 'writeSync').mockImplementation(() => 0);
       const originalExit = process.exit;
       let capturedCode: number | undefined;
       const mockExit = vi.fn((code?: number) => {
@@ -164,6 +172,8 @@ describe('secureCleanup', () => {
       process.emit('uncaughtException', new Error('test'));
       expect(capturedCode).toBe(1);
       expect(buf.equals(Buffer.alloc(3))).toBe(true);
+      expect(writeSyncSpy).toHaveBeenCalledWith(2, expect.stringContaining('Uncaught exception:'));
+      expect(writeSyncSpy).toHaveBeenCalledWith(2, expect.stringContaining('test'));
       process.exit = originalExit;
     });
 
@@ -175,6 +185,7 @@ describe('secureCleanup', () => {
       ]);
       trackBuffer(buf);
 
+      const writeSyncSpy = vi.spyOn(fs, 'writeSync').mockImplementation(() => 0);
       const originalExit = process.exit;
       let capturedCode: number | undefined;
       const mockExit = vi.fn((code?: number) => {
@@ -182,9 +193,39 @@ describe('secureCleanup', () => {
       }) as unknown as typeof process.exit;
       process.exit = mockExit;
 
-      process.emit('unhandledRejection', new Error('test'));
+      process.emit('unhandledRejection', new Error('test'), Promise.resolve());
       expect(capturedCode).toBe(1);
       expect(buf.equals(Buffer.alloc(3))).toBe(true);
+      expect(writeSyncSpy).toHaveBeenCalledWith(2, expect.stringContaining('Unhandled rejection:'));
+      expect(writeSyncSpy).toHaveBeenCalledWith(2, expect.stringContaining('test'));
+      process.exit = originalExit;
+    });
+
+    it('reports non-Error rejection reasons on stderr', () => {
+      const writeSyncSpy = vi.spyOn(fs, 'writeSync').mockImplementation(() => 0);
+      const originalExit = process.exit;
+      process.exit = vi.fn() as unknown as typeof process.exit;
+
+      process.emit('unhandledRejection', 'string reason', Promise.resolve());
+
+      expect(writeSyncSpy).toHaveBeenCalledWith(2, expect.stringContaining('Unhandled rejection:'));
+      expect(writeSyncSpy).toHaveBeenCalledWith(2, expect.stringContaining('string reason'));
+      process.exit = originalExit;
+    });
+
+    it('still exits when the stderr write fails', () => {
+      vi.spyOn(fs, 'writeSync').mockImplementation(() => {
+        throw new Error('EIO');
+      });
+      const originalExit = process.exit;
+      let capturedCode: number | undefined;
+      const mockExit = vi.fn((code?: number) => {
+        capturedCode = code;
+      }) as unknown as typeof process.exit;
+      process.exit = mockExit;
+
+      process.emit('uncaughtException', new Error('test'));
+      expect(capturedCode).toBe(1);
       process.exit = originalExit;
     });
   });

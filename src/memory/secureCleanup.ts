@@ -1,9 +1,12 @@
+import fs from 'fs';
+
 /**
  * Set of tracked sensitive buffers that must be zeroed on process exit.
  *
  * Buffers are tracked via `trackBuffer()` and untracked via `untrackBuffer()`.
  * On SIGINT, SIGTERM, uncaughtException, or unhandledRejection, all tracked
- * buffers are zeroed before the process exits.
+ * buffers are zeroed before the process exits. Fatal errors are reported
+ * to stderr before exit so failures are never silent.
  */
 const trackedBuffers = new Set<Buffer>();
 
@@ -72,8 +75,43 @@ const cleanupAndExit = (code: number) => {
   process.exit(code);
 };
 
+/**
+ * Write a fatal error report to stderr synchronously, best-effort.
+ *
+ * `fs.writeSync(2, ...)` is used instead of `console.error`/`process.stderr`
+ * because buffered stderr writes to pipes are asynchronous on some platforms
+ * and would be truncated by the `process.exit()` that follows immediately.
+ * A failed write (e.g. closed stderr) is swallowed — reporting must never
+ * prevent the process from exiting.
+ *
+ * @param header - Short label naming the fatal event.
+ * @param detail - Uncaught error or unhandled rejection reason. `Error`
+ *   values are rendered via their stack; everything else via `String()`.
+ *
+ * @security Call only after `zeroAllTracked()`; writes just the error value,
+ *   never tracked sensitive buffers.
+ */
+const writeFatalErrorToStderr = (header: string, detail: unknown): void => {
+  const text = detail instanceof Error ? (detail.stack ?? detail.message) : String(detail);
+  try {
+    fs.writeSync(2, `${header} ${text}\n`);
+  } catch {
+    // stderr unavailable — exit anyway
+  }
+};
+
 // Register signal handlers to zero sensitive buffers on exit
 process.on('SIGINT', () => { cleanupAndExit(130); });
 process.on('SIGTERM', () => { cleanupAndExit(143); });
-process.on('uncaughtException', () => { cleanupAndExit(1); });
-process.on('unhandledRejection', () => { cleanupAndExit(1); });
+// Fatal handlers: zero first (minimize secret lifetime), then report, then
+// exit — replacing Node's default silent suppression of these events.
+process.on('uncaughtException', (err: Error) => {
+  zeroAllTracked();
+  writeFatalErrorToStderr('Uncaught exception:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason: unknown) => {
+  zeroAllTracked();
+  writeFatalErrorToStderr('Unhandled rejection:', reason);
+  process.exit(1);
+});

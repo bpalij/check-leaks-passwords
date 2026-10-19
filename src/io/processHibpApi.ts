@@ -1,7 +1,4 @@
 import os from 'os';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
 import type { Ora } from 'ora';
 
@@ -27,10 +24,7 @@ import { getAvailableMemBytes } from '../memory/getAvailableMemBytes.js';
 import { parseEnvInt } from '../memory/parseEnvInt.js';
 import { createSpeedTracker } from './speedTracker.js';
 import { enrichWithPasswordObjects } from '../enrichResults.js';
-
-const pkg = JSON.parse(
-  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../package.json'), 'utf-8'),
-);
+import { PACKAGE_VERSION } from '../packageVersion.js';
 
 /**
  * Log a summary of HIBP API processing results.
@@ -174,7 +168,7 @@ export async function processHibpApi(
         const response = await fetch(`${apiUrl}${prefix}${ntlmMode ? '?mode=ntlm' : ''}`, {
           signal: controller.signal,
           headers: {
-            'User-Agent': `check-leaks-passwords/${pkg.version}`,
+            'User-Agent': `check-leaks-passwords/${PACKAGE_VERSION}`,
             'Add-Padding': 'true',
           },
         });
